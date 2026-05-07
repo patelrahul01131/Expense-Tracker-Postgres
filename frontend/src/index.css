@@ -1,5 +1,7 @@
-@import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --font-sans: 'Outfit', system-ui, sans-serif;
@@ -12,17 +14,13 @@
 
 body {
   font-family: 'Outfit', sans-serif;
-  background-color: #f8fafc;
-  color: #0f172a;
+  @apply bg-slate-50 text-slate-900 antialiased;
   margin: 0;
   padding: 0;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 .dark body {
-  background-color: #0b0f19;
-  color: #e2e8f0;
+  @apply bg-slate-950 text-slate-100;
 }
 
 /* Glassmorphism Utilities */

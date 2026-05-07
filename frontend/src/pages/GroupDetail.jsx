@@ -173,16 +173,24 @@ export default function GroupDetail() {
   const totalSpent = expenses.reduce((acc, exp) => acc + (exp.expense_type === 'expense' ? Number(exp.total_amount) : 0), 0);
   const totalIncome = expenses.reduce((acc, exp) => acc + (exp.expense_type === 'income' ? Number(exp.total_amount) : 0), 0);
 
-  const personalBalance = useMemo(() => {
-    if (!activeProfile) return { owe: 0, get: 0 };
-    let owe = 0;
-    let get = 0;
-    balances.debts.forEach(d => {
-      if (d.owes_profile_id === activeProfile.id) owe += Number(d.amount);
-      if (d.paid_by_profile_id === activeProfile.id) get += Number(d.amount);
+  const memberBalances = useMemo(() => {
+    if (!activeProfile || !members.length) return [];
+    const net = {};
+    members.forEach(m => {
+      if (m.profile_id !== activeProfile.id) {
+        net[m.profile_id] = { name: m.full_name, balance: 0 };
+      }
     });
-    return { owe, get };
-  }, [balances.debts, activeProfile]);
+    balances.debts.forEach(d => {
+      if (d.owes_profile_id === activeProfile.id && d.paid_by_profile_id !== activeProfile.id) {
+        if (net[d.paid_by_profile_id]) net[d.paid_by_profile_id].balance -= Number(d.amount);
+      }
+      if (d.paid_by_profile_id === activeProfile.id && d.owes_profile_id !== activeProfile.id) {
+        if (net[d.owes_profile_id]) net[d.owes_profile_id].balance += Number(d.amount);
+      }
+    });
+    return Object.values(net);
+  }, [balances.debts, activeProfile, members]);
 
   const categoryData = useMemo(() => {
     const counts = {};
@@ -207,7 +215,7 @@ export default function GroupDetail() {
   if (loading) return <div className="flex items-center justify-center h-screen"><Loader2 className="w-10 h-10 animate-spin text-blue-500" /></div>;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-4 lg:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 px-2 lg:px-0">
+    <div className="max-w-7xl mx-auto space-y-4 lg:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 px-2 lg:px-0 text-slate-900 dark:text-white">
       
       {/* Group Page Notifications */}
       {notifications.length > 0 && (
@@ -240,7 +248,7 @@ export default function GroupDetail() {
         <div className="absolute -left-20 -bottom-20 w-96 h-96 bg-emerald-500/10 blur-[140px] rounded-full pointer-events-none" />
         
         <div className="flex flex-col lg:flex-row items-center gap-6 lg:gap-10 relative z-10">
-          <div className="relative">
+          <div className="relative flex-shrink-0">
             <div className="w-24 h-24 lg:w-32 lg:h-32 rounded-[1.5rem] lg:rounded-[2.5rem] bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-4xl lg:text-6xl shadow-2xl overflow-hidden shadow-blue-500/20 border-4 border-white/20">
               {group?.avatar_url ? <img src={group.avatar_url} className="w-full h-full object-cover" /> : group?.name?.charAt(0)}
             </div>
@@ -249,9 +257,9 @@ export default function GroupDetail() {
             </div>
           </div>
           
-          <div className="flex-1 text-center lg:text-left w-full">
+          <div className="flex-1 text-center lg:text-left w-full min-w-0">
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-2 lg:gap-4 mb-2 lg:mb-3">
-              <h1 className="text-3xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tighter">{group?.name}</h1>
+              <h1 className="text-3xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tighter truncate max-w-full">{group?.name}</h1>
               <div className="flex items-center gap-2">
                 <span className="px-3 py-1 rounded-full bg-blue-500 text-white text-[9px] lg:text-[10px] font-black uppercase tracking-widest shadow-lg shadow-blue-500/20">{group?.role}</span>
                 {group?.role === 'admin' && (
@@ -264,15 +272,19 @@ export default function GroupDetail() {
             <p className="text-slate-500 dark:text-slate-400 font-medium text-sm lg:text-xl max-w-xl mx-auto lg:mx-0">{group?.description || "Collaborative financial tracking"}</p>
           </div>
 
-          <div className="flex flex-col sm:flex-row lg:flex-col gap-4 w-full lg:w-auto min-w-[200px]">
-            <div className="flex-1 flex lg:flex-col gap-4">
-              <div className="flex-1 bg-black/5 dark:bg-white/5 p-4 lg:p-4 rounded-2xl lg:rounded-3xl border border-black/5 dark:border-white/5 text-center">
-                <p className="text-[9px] lg:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">You Owe</p>
-                <p className="text-xl lg:text-2xl font-black text-rose-500">${personalBalance.owe.toFixed(2)}</p>
-              </div>
-              <div className="flex-1 bg-black/5 dark:bg-white/5 p-4 lg:p-4 rounded-2xl lg:rounded-3xl border border-black/5 dark:border-white/5 text-center">
-                <p className="text-[9px] lg:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Owed to You</p>
-                <p className="text-xl lg:text-2xl font-black text-emerald-500">${personalBalance.get.toFixed(2)}</p>
+          <div className="flex flex-col gap-4 w-full lg:w-72 flex-shrink-0">
+            <div className="bg-black/5 dark:bg-white/5 p-5 lg:p-6 rounded-3xl border border-black/5 dark:border-white/5">
+              <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><TrendingUp className="w-3.5 h-3.5" /> Group Cashflow</h3>
+              <div className="space-y-2.5 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                {memberBalances.map((mb, i) => (
+                  <div key={i} className="flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300 truncate">{mb.name}</span>
+                    <span className={`text-sm font-black whitespace-nowrap ${mb.balance > 0 ? 'text-emerald-500' : mb.balance < 0 ? 'text-rose-500' : 'text-slate-400'}`}>
+                      {mb.balance > 0 ? '+' : ''}{mb.balance.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+                {memberBalances.length === 0 && <p className="text-[10px] text-slate-400 font-bold italic">No other members</p>}
               </div>
             </div>
             <button onClick={() => setShowAddExpense(true)} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 lg:py-5 rounded-2xl lg:rounded-[1.5rem] font-black shadow-2xl shadow-blue-600/40 transition-all hover:-translate-y-1 active:scale-95 flex items-center justify-center gap-2">
@@ -614,16 +626,16 @@ export default function GroupDetail() {
                 </div>
                 <div className="space-y-3 lg:space-y-4">
                   <label className="block text-[8px] lg:text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Category</label>
-                  <select value={expenseForm.category_id || ""} onChange={e => setExpenseForm({...expenseForm, category_id: e.target.value})} className="w-full p-4 lg:p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl lg:rounded-3xl font-black outline-none appearance-none shadow-inner text-sm lg:text-base">
-                    <option value="">Miscellaneous</option>
-                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <select value={expenseForm.category_id || ""} onChange={e => setExpenseForm({...expenseForm, category_id: e.target.value})} className="w-full p-4 lg:p-6 bg-slate-50 dark:bg-slate-800 rounded-2xl lg:rounded-3xl font-black outline-none appearance-none shadow-inner text-sm lg:text-base text-slate-900 dark:text-white">
+                    <option value="" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">Miscellaneous</option>
+                    {categories.map(c => <option key={c.id} value={c.id} className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">{c.name}</option>)}
                   </select>
                 </div>
               </div>
               <div className="space-y-4 lg:space-y-6 bg-blue-500/5 p-6 lg:p-8 rounded-[2rem] lg:rounded-[2.5rem] border-2 border-blue-500/10">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[8px] lg:text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Split with</h4>
-                  <span className="text-[8px] lg:text-[10px] font-black text-blue-500 bg-white px-2 lg:px-3 py-1 rounded-full">{expenseForm.splits.filter(s => s.selected).length} Members</span>
+                  <span className="text-[8px] lg:text-[10px] font-black text-blue-500 bg-white dark:bg-slate-900 px-2 lg:px-3 py-1 rounded-full shadow-sm">{expenseForm.splits.filter(s => s.selected).length} Members</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:gap-3">
                   {expenseForm.splits.map((s, idx) => (

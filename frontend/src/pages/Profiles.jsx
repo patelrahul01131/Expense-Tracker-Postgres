@@ -55,7 +55,7 @@ export default function Profiles() {
   if (loadingProfiles) return <div className="flex items-center justify-center h-64"><Loader2 className="w-10 h-10 animate-spin text-blue-500" /></div>;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 lg:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 px-2 lg:px-0">
+    <div className="max-w-6xl mx-auto space-y-6 lg:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 px-2 lg:px-0 text-slate-900 dark:text-white">
       
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -222,11 +222,15 @@ export default function Profiles() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 lg:gap-6">
                 <div className="space-y-3">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Currency</label>
-                  <select value={formData.currency} onChange={e => setFormData({ ...formData, currency: e.target.value })} className="w-full px-5 py-4 bg-slate-50 dark:bg-black/20 rounded-2xl text-slate-900 dark:text-white font-bold text-sm outline-none appearance-none focus:ring-2 focus:ring-blue-500 shadow-inner">
-                    <option value="USD">USD ($)</option>
-                    <option value="EUR">EUR (€)</option>
-                    <option value="INR">INR (₹)</option>
-                    <option value="GBP">GBP (£)</option>
+                  <select
+                    value={formData.currency}
+                    onChange={e => setFormData({ ...formData, currency: e.target.value })}
+                    className="w-full px-5 py-4 bg-slate-50 dark:bg-black/20 rounded-2xl text-slate-900 dark:text-white font-bold text-sm outline-none appearance-none focus:ring-2 focus:ring-blue-500 shadow-inner"
+                  >
+                    <option value="USD" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">USD ($)</option>
+                    <option value="EUR" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">EUR (€)</option>
+                    <option value="INR" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">INR (₹)</option>
+                    <option value="GBP" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">GBP (£)</option>
                   </select>
                 </div>
                 <div className="space-y-3">

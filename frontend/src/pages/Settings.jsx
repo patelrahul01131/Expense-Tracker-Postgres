@@ -50,7 +50,6 @@ export default function Settings() {
     { name: "General", icon: Globe },
     { name: "Appearance", icon: Palette },
     { name: "Security", icon: Lock },
-    { name: "Notifications", icon: Bell },
   ];
 
   useEffect(() => {
@@ -222,42 +221,12 @@ export default function Settings() {
                         onChange={(e) => setCurrency(e.target.value)}
                         className="w-full bg-black/5 dark:bg-black/20 border-none rounded-2xl px-5 py-4 text-slate-900 dark:text-white font-medium focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none"
                       >
-                        <option
-                          value="USD"
-                          className="bg-white dark:bg-slate-800"
-                        >
-                          USD ($) — US Dollar
-                        </option>
-                        <option
-                          value="EUR"
-                          className="bg-white dark:bg-slate-800"
-                        >
-                          EUR (€) — Euro
-                        </option>
-                        <option
-                          value="GBP"
-                          className="bg-white dark:bg-slate-800"
-                        >
-                          GBP (£) — British Pound
-                        </option>
-                        <option
-                          value="INR"
-                          className="bg-white dark:bg-slate-800"
-                        >
-                          INR (₹) — Indian Rupee
-                        </option>
-                        <option
-                          value="AUD"
-                          className="bg-white dark:bg-slate-800"
-                        >
-                          AUD ($) — Australian Dollar
-                        </option>
-                        <option
-                          value="CAD"
-                          className="bg-white dark:bg-slate-800"
-                        >
-                          CAD ($) — Canadian Dollar
-                        </option>
+                        <option value="USD">USD ($) — US Dollar</option>
+                        <option value="EUR">EUR (€) — Euro</option>
+                        <option value="GBP">GBP (£) — British Pound</option>
+                        <option value="INR">INR (₹) — Indian Rupee</option>
+                        <option value="AUD">AUD ($) — Australian Dollar</option>
+                        <option value="CAD">CAD ($) — Canadian Dollar</option>
                       </select>
                     </div>
 
@@ -427,21 +396,6 @@ export default function Settings() {
                     Change Password
                   </button>
                 </form>
-              </div>
-            )}
-
-            {/* ── NOTIFICATIONS (placeholder) ── */}
-            {activeTab === "Notifications" && (
-              <div className="flex flex-col items-center justify-center h-64 text-center animate-in zoom-in-95 duration-300">
-                <div className="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center mb-6">
-                  <Bell className="w-10 h-10 text-blue-500" />
-                </div>
-                <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">
-                  Coming Soon
-                </h3>
-                <p className="text-slate-500 dark:text-slate-400 font-medium max-w-md">
-                  Notification preferences will be available in a future update.
-                </p>
               </div>
             )}
           </div>
