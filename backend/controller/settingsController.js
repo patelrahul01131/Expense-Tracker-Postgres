@@ -28,7 +28,7 @@ const getSettingsController = async (req, res) => {
   } catch (error) {
     console.log("getSettingsController error:", error);
     res.status(500).json({ message: "Error fetching settings", error });
-  }
+  } 
 };
 
 // PATCH profile settings (currency)

@@ -25,6 +25,7 @@ import {
   ChevronUp,
   AlertCircle,
   PieChart,
+  ArrowRight,
   Activity,
   Wallet,
   History,
@@ -33,6 +34,7 @@ import {
   Clock,
   ArrowUpRight,
   ArrowDownLeft,
+  CheckCircle2,
   Send,
 } from "lucide-react";
 import axios from "axios";
@@ -85,6 +87,7 @@ export default function GroupDetail() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
   const [addingExpense, setAddingExpense] = useState(false);
+  const [recordingSettlement, setRecordingSettlement] = useState(null); // ID of the settlement being recorded
 
   const [expenseForm, setExpenseForm] = useState({
     title: "",
@@ -101,7 +104,10 @@ export default function GroupDetail() {
     const total = parseFloat(expenseForm.amount) || 0;
     const selectedSplits = expenseForm.splits.filter((s) => s.selected);
 
-    if (expenseForm.split_type === "equal" || expenseForm.split_type === "shares") {
+    if (
+      expenseForm.split_type === "equal" ||
+      expenseForm.split_type === "shares"
+    ) {
       return { sum: total, remaining: 0, isValid: true };
     }
 
@@ -194,14 +200,14 @@ export default function GroupDetail() {
     fetchData();
   }, [fetchData]);
 
-  useEffect(() => {
-    if (!expenseForm.amount || isNaN(expenseForm.amount)) return;
-    const total = parseFloat(expenseForm.amount);
-    const selectedMembers = expenseForm.splits.filter((s) => s.selected);
-    if (selectedMembers.length === 0) return;
+  const calculateSplits = useCallback((amount, splitType, splits) => {
+    if (!amount || isNaN(amount)) return splits;
+    const total = parseFloat(amount);
+    const selectedMembers = splits.filter((s) => s.selected);
+    if (selectedMembers.length === 0) return splits;
 
-    let newSplits = [...expenseForm.splits];
-    if (expenseForm.split_type === "equal") {
+    let newSplits = [...splits];
+    if (splitType === "equal") {
       const splitAmount = (total / selectedMembers.length).toFixed(2);
       newSplits = newSplits.map((s) =>
         s.selected
@@ -212,7 +218,7 @@ export default function GroupDetail() {
             }
           : { ...s, amount: 0, percent: 0 },
       );
-    } else if (expenseForm.split_type === "shares") {
+    } else if (splitType === "shares") {
       const totalShares = selectedMembers.reduce(
         (acc, s) => acc + (parseFloat(s.shares) || 0),
         0,
@@ -234,7 +240,7 @@ export default function GroupDetail() {
             : { ...s, amount: 0, percent: 0, shares: 0 },
         );
       }
-    } else if (expenseForm.split_type === "percent") {
+    } else if (splitType === "percent") {
       newSplits = newSplits.map((s) =>
         s.selected
           ? {
@@ -244,6 +250,15 @@ export default function GroupDetail() {
           : { ...s, amount: 0, percent: 0 },
       );
     }
+    return newSplits;
+  }, []);
+
+  useEffect(() => {
+    const newSplits = calculateSplits(
+      expenseForm.amount,
+      expenseForm.split_type,
+      expenseForm.splits,
+    );
 
     // Only update if values actually changed to prevent infinite loops
     const hasChanged =
@@ -262,6 +277,7 @@ export default function GroupDetail() {
     expenseForm.splits.map((s) => s.shares).join(","),
     expenseForm.splits.map((s) => s.percent).join(","),
     expenseForm.splits.map((s) => s.amount).join(","),
+    calculateSplits,
   ]);
 
   const handleAddExpense = async (e) => {
@@ -326,45 +342,6 @@ export default function GroupDetail() {
     }
   };
 
-  const handleSettle = async (from, to, amount, splitId = null) => {
-    try {
-      await axios.post(
-        `http://localhost:3000/api/groups/${groupId}/settle`,
-        {
-          from_profile_id: from,
-          to_profile_id: to,
-          amount: amount,
-          split_id: splitId,
-        },
-        { headers: getHeaders() },
-      );
-      toast.success("Settlement request sent!");
-      fetchData();
-    } catch (err) {
-      console.log(err);
-      toast.error("Failed to request settlement");
-    }
-  };
-
-  const handleConfirmNotif = async (notif, status) => {
-    // Optimistic UI update
-    setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
-
-    try {
-      const settlementId = notif.data.settlement_id;
-      await axios.post(
-        `http://localhost:3000/api/groups/settlements/${settlementId}/confirm`,
-        { status },
-        { headers: getHeaders() },
-      );
-      toast.success(`Payment ${status}`);
-      fetchData();
-    } catch (err) {
-      toast.error(err.response?.data?.message || "Error confirming payment");
-      fetchData(); // Restore state
-    }
-  };
-
   const totalSpent = expenses.reduce(
     (acc, exp) =>
       acc + (exp.expense_type === "expense" ? Number(exp.total_amount) : 0),
@@ -423,7 +400,8 @@ export default function GroupDetail() {
     });
 
     const results = [];
-    let i = 0, j = 0;
+    let i = 0,
+      j = 0;
     const debtorArr = [...debtors];
     const creditorArr = [...creditors];
 
@@ -450,11 +428,18 @@ export default function GroupDetail() {
       if (debtor.amount < 0.01) i++;
       if (creditor.amount < 0.01) j++;
     }
-    return results;
-  }, [balances.debts, members]);
+
+    // Only show debts involving the active user
+    return results.filter(
+      (d) =>
+        d.owes_profile_id === activeProfile?.id ||
+        d.paid_by_profile_id === activeProfile?.id,
+    );
+  }, [balances.debts, members, activeProfile]);
 
   const handleDeleteExpense = async (expenseId) => {
-    if (!window.confirm("Are you sure you want to delete this expense?")) return;
+    if (!window.confirm("Are you sure you want to delete this expense?"))
+      return;
     try {
       await axios.delete(
         `http://localhost:3000/api/groups/${groupId}/expenses/${expenseId}`,
@@ -465,6 +450,59 @@ export default function GroupDetail() {
       fetchData();
     } catch (err) {
       toast.error(err.response?.data?.message || "Failed to delete expense");
+    }
+  };
+
+  const handleSettle = async (fromId, toId, amount, splitId = null) => {
+    const settlementId = `${fromId}-${toId}-${amount}`;
+    setRecordingSettlement(settlementId);
+    try {
+      await axios.post(
+        `http://localhost:3000/api/groups/${groupId}/settle`,
+        {
+          from_profile_id: fromId,
+          to_profile_id: toId,
+          amount,
+          split_id: splitId,
+        },
+        { headers: getHeaders() },
+      );
+      toast.success("Settlement request recorded!");
+      fetchData();
+    } catch (err) {
+      console.log("Record Settlement Error: " + err.response?.data?.message || "Failed to record settlement");
+      toast.error(err.response?.data?.message || "Failed to record settlement");
+    } finally {
+      setRecordingSettlement(null);
+    }
+  };
+
+  const handleConfirmNotif = async (notif, status) => {
+    try {
+      await axios.post(
+        `http://localhost:3000/api/groups/${groupId}/settlements/${notif.data.settlement_id}/confirm`,
+        { status },
+        { headers: getHeaders() },
+      );
+      toast.success(
+        status === "accepted" ? "Settlement confirmed!" : "Settlement rejected",
+      );
+      fetchData();
+    } catch (err) {
+      toast.error("Failed to update settlement status");
+    }
+  };
+
+  const handleRemind = async (fromId, toId, amount) => {
+    try {
+      await axios.post(
+        `http://localhost:3000/api/groups/${groupId}/remind`,
+        { from_profile_id: fromId, to_profile_id: toId, amount },
+        { headers: getHeaders() },
+      );
+      toast.success("Reminder sent!");
+    } catch (err) {
+      toast.error("Failed to send reminder");
     }
   };
 
@@ -513,39 +551,73 @@ export default function GroupDetail() {
           {notifications.map((n) => (
             <div
               key={n.id}
-              className="bg-amber-500/10 border-2 border-amber-500/20 p-4 lg:p-5 rounded-2xl lg:rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg shadow-amber-500/5"
+              className={`${n.type === "payment_reminder" ? "bg-blue-500/10 border-blue-500/20" : "bg-amber-500/10 border-amber-500/20"} border-2 p-4 lg:p-5 rounded-2xl lg:rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-4 shadow-lg`}
             >
               <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-lg flex-shrink-0">
+                <div
+                  className={`w-10 h-10 rounded-full ${n.type === "payment_reminder" ? "bg-blue-500" : "bg-amber-500"} flex items-center justify-center text-white shadow-lg flex-shrink-0`}
+                >
                   <Bell className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-amber-900 dark:text-amber-100">
-                    <span className="font-black">{n.sender_name}</span> is
-                    settling{" "}
-                    <span className="font-black text-amber-600">
-                      ${n.data.amount}
-                    </span>{" "}
-                    with you.
+                  <p
+                    className={`text-sm font-bold ${n.type === "payment_reminder" ? "text-blue-900 dark:text-blue-100" : "text-amber-900 dark:text-amber-100"}`}
+                  >
+                    <span className="font-black">{n.sender_name}</span>{" "}
+                    {n.type === "payment_reminder" ? (
+                      <>
+                        reminded you to pay{" "}
+                        <span className="font-black text-blue-600">
+                          ${n.data.amount}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        is settling{" "}
+                        <span className="font-black text-amber-600">
+                          ${n.data.amount}
+                        </span>{" "}
+                        with you.
+                      </>
+                    )}
                   </p>
-                  <p className="text-[10px] font-black uppercase text-amber-600/60 mt-0.5">
-                    Please confirm if received
+                  <p
+                    className={`text-[10px] font-black uppercase ${n.type === "payment_reminder" ? "text-blue-600/60" : "text-amber-600/60"} mt-0.5`}
+                  >
+                    {n.type === "payment_reminder"
+                      ? "Pending Payment"
+                      : "Please confirm if received"}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => handleConfirmNotif(n, "accepted")}
-                  className="flex-1 sm:flex-none px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black rounded-xl shadow-lg transition-all active:scale-95"
-                >
-                  Confirm
-                </button>
-                <button
-                  onClick={() => handleConfirmNotif(n, "rejected")}
-                  className="flex-1 sm:flex-none px-6 py-2.5 bg-white/80 dark:bg-slate-800 text-amber-700 dark:text-amber-300 text-xs font-black rounded-xl border border-amber-200"
-                >
-                  Deny
-                </button>
+                {n.type === "payment_reminder" ? (
+                  <button
+                    onClick={() =>
+                      setNotifications((prev) =>
+                        prev.filter((notif) => notif.id !== n.id)
+                      )
+                    }
+                    className="flex-1 sm:flex-none px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-black rounded-xl shadow-lg transition-all active:scale-95"
+                  >
+                    Dismiss
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleConfirmNotif(n, "accepted")}
+                      className="flex-1 sm:flex-none px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-black rounded-xl shadow-lg transition-all active:scale-95"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => handleConfirmNotif(n, "rejected")}
+                      className="flex-1 sm:flex-none px-6 py-2.5 bg-white/80 dark:bg-slate-800 text-amber-700 dark:text-amber-300 text-xs font-black rounded-xl border border-amber-200"
+                    >
+                      Deny
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -693,7 +765,9 @@ export default function GroupDetail() {
                   >
                     <div className="flex items-center gap-2 lg:gap-3 px-2 lg:px-3">
                       <span className="text-[9px] lg:text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                        {exp.added_by_name}
+                        {exp.added_by_profile_id === activeProfile?.id
+                          ? "You"
+                          : exp.added_by_name}
                       </span>
                       <span className="text-[9px] text-slate-300 font-bold">
                         {new Date(exp.expense_date).toLocaleTimeString([], {
@@ -785,7 +859,9 @@ export default function GroupDetail() {
                             Debtor
                           </p>
                           <h4 className="font-black text-slate-900 dark:text-white truncate max-w-[120px]">
-                            {debt.owes_full_name}
+                            {debt.owes_profile_id === activeProfile?.id
+                              ? "You"
+                              : debt.owes_full_name}
                           </h4>
                         </div>
                       </div>
@@ -796,7 +872,9 @@ export default function GroupDetail() {
                             Creditor
                           </p>
                           <h4 className="font-black text-slate-900 dark:text-white truncate max-w-[120px]">
-                            {debt.paid_by_full_name}
+                            {debt.paid_by_profile_id === activeProfile?.id
+                              ? "You"
+                              : debt.paid_by_full_name}
                           </h4>
                         </div>
                         <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 font-black">
@@ -814,18 +892,51 @@ export default function GroupDetail() {
                           ${Number(debt.amount).toFixed(2)}
                         </p>
                       </div>
-                      <button
-                        onClick={() =>
-                          handleSettle(
-                            debt.owes_profile_id,
-                            debt.paid_by_profile_id,
-                            debt.amount,
-                          )
-                        }
-                        className="px-8 py-4 bg-slate-900 dark:bg-white dark:text-slate-900 text-white font-black rounded-2xl text-xs uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all active:scale-95 shadow-lg shadow-black/10"
-                      >
-                        Record
-                      </button>
+
+                      {debt.owes_profile_id === activeProfile?.id ? (
+                        <button
+                          disabled={
+                            recordingSettlement ===
+                            `${debt.owes_profile_id}-${debt.paid_by_profile_id}-${debt.amount}`
+                          }
+                          onClick={() =>
+                            handleSettle(
+                              debt.owes_profile_id,
+                              debt.paid_by_profile_id,
+                              debt.amount,
+                            )
+                          }
+                          className={`px-8 py-4 font-black rounded-2xl text-xs uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-black/10 flex items-center gap-2 ${
+                            recordingSettlement ===
+                            `${debt.owes_profile_id}-${debt.paid_by_profile_id}-${debt.amount}`
+                              ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                              : "bg-slate-900 dark:bg-white dark:text-slate-900 text-white hover:bg-blue-600 hover:text-white"
+                          }`}
+                        >
+                          {recordingSettlement ===
+                          `${debt.owes_profile_id}-${debt.paid_by_profile_id}-${debt.amount}` ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />{" "}
+                              Recording
+                            </>
+                          ) : (
+                            "Record"
+                          )}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() =>
+                            handleRemind(
+                              debt.owes_profile_id,
+                              debt.paid_by_profile_id,
+                              debt.amount,
+                            )
+                          }
+                          className="px-8 py-4 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-2xl text-xs uppercase tracking-widest transition-all active:scale-95 shadow-lg shadow-amber-500/20 flex items-center gap-2"
+                        >
+                          <Bell className="w-3 h-3" /> Remind
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1007,9 +1118,6 @@ export default function GroupDetail() {
                     )}
                   </span>
 
-                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300 truncate">
-                    {member.email}
-                  </span>
                   <span>
                     {(() => {
                       const b = memberBalances.find((b) => b.id === member.id);
@@ -1097,9 +1205,9 @@ export default function GroupDetail() {
                     >
                       <div className="flex items-center gap-3 lg:gap-4">
                         <div
-                          className={`w-8 h-8 lg:w-10 lg:h-10 rounded-lg lg:rounded-xl flex items-center justify-center font-black text-xs lg:text-sm ${s.status === "completed" ? "bg-emerald-500 text-white" : "bg-slate-100 dark:bg-slate-700"}`}
+                          className={`w-8 h-8 lg:w-10 lg:h-10 rounded-lg lg:rounded-xl flex items-center justify-center font-black text-xs lg:text-sm ${s.status === "completed" || s.status === "paid" ? "bg-emerald-500 text-white" : "bg-slate-100 dark:bg-slate-700"}`}
                         >
-                          {s.status === "completed" ? (
+                          {s.status === "completed" || s.status === "paid" ? (
                             <Check className="w-4 h-4 lg:w-5 lg:h-5" />
                           ) : (
                             s.full_name.charAt(0)
@@ -1110,9 +1218,11 @@ export default function GroupDetail() {
                             {s.full_name}
                           </p>
                           <p
-                            className={`text-[8px] lg:text-[10px] font-black uppercase ${s.status === "completed" ? "text-emerald-500" : "text-slate-400"}`}
+                            className={`text-[8px] lg:text-[10px] font-black uppercase ${s.status === "completed" || s.status === "paid" ? "text-emerald-500" : "text-slate-400"}`}
                           >
-                            {s.status === "completed" ? "Completed" : "Pending Share"}
+                            {s.status === "completed" || s.status === "paid"
+                              ? "Completed"
+                              : "Pending Share"}
                           </p>
                         </div>
                       </div>
@@ -1123,7 +1233,7 @@ export default function GroupDetail() {
                   );
                 })}
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4 lg:gap-6 mt-6 lg:mt-10">
                 {(group.role === "admin" ||
                   selectedExpense.paid_by_profile_id === activeProfile?.id) && (
@@ -1543,9 +1653,20 @@ export default function GroupDetail() {
                               {expenseForm.split_type === "equal" ? (
                                 <>${s.amount} (Fixed Equal)</>
                               ) : expenseForm.split_type === "value" ? (
-                                <>{((s.amount / expenseForm.amount) * 100 || 0).toFixed(1)}% share</>
+                                <>
+                                  {(
+                                    (s.amount / expenseForm.amount) * 100 || 0
+                                  ).toFixed(1)}
+                                  % share
+                                </>
                               ) : expenseForm.split_type === "percent" ? (
-                                <>${((expenseForm.amount * s.percent) / 100 || 0).toFixed(2)} amount</>
+                                <>
+                                  $
+                                  {(
+                                    (expenseForm.amount * s.percent) / 100 || 0
+                                  ).toFixed(2)}{" "}
+                                  amount
+                                </>
                               ) : (
                                 <>{s.shares} shares assigned</>
                               )}

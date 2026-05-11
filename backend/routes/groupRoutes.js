@@ -11,6 +11,7 @@ import {
   getNotificationsController,
   acceptGroupInviteController,
   getGroupsController,
+  remindPaymentController,
   createGroupController,
   getGroupMembersController,
 } from "../controller/groupController.js";
@@ -39,7 +40,12 @@ router.delete(
 
 router.get("/:groupId/balances", authMiddleware, getGroupBalancesController);
 router.post("/:groupId/settle", authMiddleware, settlePaymentController);
-router.post("/settlements/:settlementId/confirm", authMiddleware, confirmSettlementController);
+router.post("/:groupId/remind", authMiddleware, remindPaymentController);
+router.post(
+  "/:groupId/settlements/:settlementId/confirm",
+  authMiddleware,
+  confirmSettlementController,
+);
 router.post("/accept-invite", authMiddleware, acceptGroupInviteController);
 router.get("/notifications", authMiddleware, getNotificationsController);
 

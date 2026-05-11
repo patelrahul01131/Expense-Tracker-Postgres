@@ -520,36 +520,39 @@ const settlePaymentController = async (req, res) => {
 
     await client.query("BEGIN");
 
+    // Check for existing pending settlement
+    const existing = await client.query(
+      `SELECT id FROM group_settlements 
+       WHERE group_id = $1 AND from_profile_id = $2 AND to_profile_id = $3 AND status = 'pending'`,
+      [groupId, from_profile_id, to_profile_id],
+    );
+    if (existing.rows.length > 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        message:
+          "A settlement request is already pending between these members",
+      });
+    }
+
     // 1. Create the settlement record
     const settlementRes = await client.query(
-      `INSERT INTO group_settlements (group_id, from_profile_id, to_profile_id, amount, status, confirmed)
-       VALUES ($1, $2, $3, $4, 'pending', FALSE)
+      `INSERT INTO group_settlements (group_id, from_profile_id, to_profile_id, amount, status, confirmed, split_id)
+       VALUES ($1, $2, $3, $4, 'pending', FALSE, $5)
        RETURNING *`,
-      [groupId, from_profile_id, to_profile_id, amount],
+      [groupId, from_profile_id, to_profile_id, amount, split_id],
     );
     const settlement = settlementRes.rows[0];
 
-    // 2. Get the target user ID (the one receiving the money)
-    const targetProfileRes = await client.query(
-      `SELECT user_id FROM profiles WHERE id = $1`,
-      [to_profile_id],
-    );
-    const targetUserId = targetProfileRes.rows[0].user_id;
-
-    // 3. Create a notification for the recipient
+    // 2. Create notification for the recipient
     await client.query(
-      `INSERT INTO notifications (user_id, sender_id, group_id, type, data, status)
-       VALUES ($1, $2, $3, 'settlement_request', $4, 'pending')`,
+      `INSERT INTO notifications (user_id, group_id, sender_id, type, data)
+       SELECT p.user_id, $1, $2, 'settlement_request', $3
+       FROM profiles p WHERE p.id = $4`,
       [
-        targetUserId,
-        userId,
         groupId,
-        JSON.stringify({
-          settlement_id: settlement.id,
-          amount,
-          from_profile_id,
-          split_id: split_id || null,
-        }),
+        userId,
+        JSON.stringify({ settlement_id: settlement.id, amount, split_id }),
+        to_profile_id,
       ],
     );
 
@@ -595,7 +598,7 @@ const confirmSettlementController = async (req, res) => {
       return res.status(400).json({ message: "Settlement already processed" });
     }
 
-    const splitId = settlement.data?.split_id;
+    const splitId = settlement.split_id;
 
     // 1. Update settlement
     const isConfirmed = status === "accepted";
@@ -606,12 +609,42 @@ const confirmSettlementController = async (req, res) => {
       [isConfirmed, isConfirmed ? "completed" : "failed", settlementId],
     );
 
-    // 2. If split_id exists, mark split as paid
-    if (isConfirmed && splitId) {
-      await client.query(
-        `UPDATE group_expense_splits SET status = 'paid' WHERE id = $1`,
-        [splitId],
-      );
+    // 2. Handle split status updates
+    if (isConfirmed) {
+      if (splitId) {
+        // Specific split settlement
+        await client.query(
+          `UPDATE group_expense_splits SET status = 'paid' WHERE id = $1`,
+          [splitId],
+        );
+      } else {
+        // Overall settlement: Auto-apply to pending splits to clear "Pending" statuses
+        let remainingAmount = Number(settlement.amount);
+        const pendingSplits = await client.query(
+          `SELECT ges.id, ges.amount 
+           FROM group_expense_splits ges
+           JOIN group_expenses ge ON ges.expense_id = ge.id
+           WHERE ge.group_id = $1 
+             AND ges.profile_id = $2 
+             AND ge.paid_by_profile_id = $3 
+             AND ges.status = 'pending'
+           ORDER BY ge.expense_date ASC, ge.created_at ASC`,
+          [settlement.group_id, settlement.from_profile_id, settlement.to_profile_id],
+        );
+
+        for (const split of pendingSplits.rows) {
+          if (remainingAmount <= 0.01) break;
+          const splitAmt = Number(split.amount);
+          
+          if (remainingAmount >= splitAmt - 0.01) {
+            await client.query(
+              `UPDATE group_expense_splits SET status = 'paid' WHERE id = $1`,
+              [split.id],
+            );
+            remainingAmount -= splitAmt;
+          }
+        }
+      }
     }
 
     // 3. Update notification
@@ -690,12 +723,38 @@ const deleteGroupExpenseController = async (req, res) => {
   }
 };
 
+const remindPaymentController = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { from_profile_id, to_profile_id, amount } = req.body;
+    const userId = req.user?.id;
+
+    if (!from_profile_id || !to_profile_id || !amount) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // Create notification for the debtor
+    await pool.query(
+      `INSERT INTO notifications (user_id, group_id, sender_id, type, data)
+       SELECT p.user_id, $1, $2, 'payment_reminder', $3
+       FROM profiles p WHERE p.id = $4`,
+      [
+        groupId,
+        userId,
+        JSON.stringify({ amount, message: "Please settle your pending debt" }),
+        from_profile_id,
+      ],
+    );
+
+    res.status(200).json({ message: "Reminder sent successfully" });
+  } catch (error) {
+    console.log("remindPaymentController error:", error);
+    res.status(500).json({ message: "Error sending reminder", error });
+  }
+};
+
 export {
-  getGroupsController,
-  createGroupController,
-  getGroupMembersController,
   inviteToGroupController,
-  acceptGroupInviteController,
   removeMemberController,
   getGroupExpensesController,
   addGroupExpenseController,
@@ -704,4 +763,9 @@ export {
   settlePaymentController,
   confirmSettlementController,
   getNotificationsController,
+  acceptGroupInviteController,
+  getGroupsController,
+  createGroupController,
+  getGroupMembersController,
+  remindPaymentController,
 };

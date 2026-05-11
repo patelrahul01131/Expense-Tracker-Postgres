@@ -357,6 +357,20 @@ export default function Layout({ children }) {
                                     {n.data?.group_name}
                                   </span>
                                 </p>
+                              ) : n.type === "payment_reminder" ? (
+                                <p className="text-xs font-bold text-slate-900 dark:text-white mb-1">
+                                  <span className="font-black">
+                                    {n.sender_name}
+                                  </span>{" "}
+                                  reminded you to pay{" "}
+                                  <span className="text-amber-600 font-black">
+                                    ${n.data.amount}
+                                  </span>{" "}
+                                  in{" "}
+                                  <span className="font-black">
+                                    {n.group_name}
+                                  </span>
+                                </p>
                               ) : (
                                 <p className="text-xs font-bold text-slate-900 dark:text-white mb-1">
                                   <span className="font-black">
@@ -373,26 +387,41 @@ export default function Layout({ children }) {
                                 </p>
                               )}
                               <div className="flex gap-2 mt-2">
-                                <button
-                                  onClick={() =>
-                                    n.type === "group_invite"
-                                      ? handleAcceptInvite(n, "accepted")
-                                      : handleConfirmNotif(n, "accepted")
-                                  }
-                                  className={`flex-1 py-1.5 text-white text-[10px] font-black rounded-lg transition-colors ${n.type === "group_invite" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-blue-600 hover:bg-blue-700"}`}
-                                >
-                                  Accept
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    n.type === "group_invite"
-                                      ? handleAcceptInvite(n, "rejected")
-                                      : handleConfirmNotif(n, "rejected")
-                                  }
-                                  className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-black rounded-lg hover:bg-slate-200 transition-colors"
-                                >
-                                  Decline
-                                </button>
+                                {n.type !== "payment_reminder" ? (
+                                  <>
+                                    <button
+                                      onClick={() =>
+                                        n.type === "group_invite"
+                                          ? handleAcceptInvite(n, "accepted")
+                                          : handleConfirmNotif(n, "accepted")
+                                      }
+                                      className={`flex-1 py-1.5 text-white text-[10px] font-black rounded-lg transition-colors ${n.type === "group_invite" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-blue-600 hover:bg-blue-700"}`}
+                                    >
+                                      Accept
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        n.type === "group_invite"
+                                          ? handleAcceptInvite(n, "rejected")
+                                          : handleConfirmNotif(n, "rejected")
+                                      }
+                                      className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-black rounded-lg hover:bg-slate-200 transition-colors"
+                                    >
+                                      Decline
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() =>
+                                      setNotifications((prev) =>
+                                        prev.filter((notif) => notif.id !== n.id)
+                                      )
+                                    }
+                                    className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-black rounded-lg hover:bg-slate-200 transition-colors"
+                                  >
+                                    Dismiss
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
