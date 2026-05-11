@@ -35,7 +35,10 @@ export function ProfileProvider({ children }) {
     }
     try {
       const res = await axios.get("http://localhost:3000/api/profile", {
-        headers: { token },
+        headers: {
+          token,
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
       });
       const data = res.data || [];
       setProfiles(data);

@@ -34,8 +34,6 @@ const signupController = async (req, res) => {
 const loginController = async (req, res) => {
   const { email, password } = req.body;
 
-  console.log("from backend :", req.body);
-
   const query = `SELECT * FROM users WHERE email = $1`;
   const values = [email];
 
@@ -61,7 +59,6 @@ const loginController = async (req, res) => {
       expiresIn: "7d",
     });
 
-    console.log("from backend JWT token :", token);
     res.status(200).json({
       message: "User Logged In Successfully",
       token,

@@ -19,7 +19,7 @@ import {
   UserPlus,
   Mail,
   Menu,
-  X
+  X,
 } from "lucide-react";
 import axios from "axios";
 import { toast } from "react-toastify";
@@ -35,6 +35,7 @@ export default function Layout({ children }) {
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(false);
   const dropdownRef = useRef(null);
   const notificationRef = useRef(null);
 
@@ -44,7 +45,10 @@ export default function Layout({ children }) {
       if (!token) return;
       try {
         const res = await axios.get("http://localhost:3000/api/auth/user", {
-          headers: { token },
+          headers: {
+            token,
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+          },
         });
         const fullName = res.data?.full_name || res.data?.email || "User";
         setUserName(fullName);
@@ -77,7 +81,10 @@ export default function Layout({ children }) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
         setDropdownOpen(false);
       }
-      if (notificationRef.current && !notificationRef.current.contains(e.target)) {
+      if (
+        notificationRef.current &&
+        !notificationRef.current.contains(e.target)
+      ) {
         setNotificationOpen(false);
       }
     };
@@ -86,15 +93,29 @@ export default function Layout({ children }) {
   }, []);
 
   const fetchNotifications = async () => {
+    setLoading(true);
     const token = localStorage.getItem("token");
     try {
-      const res = await axios.get("http://localhost:3000/api/groups/notifications", {
-        headers: { token }
-      });
+      const res = await axios.get(
+        "http://localhost:3000/api/groups/notifications",
+        {
+          headers: {
+            token,
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+          },
+        },
+      );
       setNotifications(res.data || []);
     } catch (e) {
       console.log("Notif fetch error", e);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleRefresh = () => {
+    fetchNotifications();
+    console.log("refresh");
   };
 
   useEffect(() => {
@@ -105,13 +126,18 @@ export default function Layout({ children }) {
 
   const handleConfirmNotif = async (n, status) => {
     // Optimistic UI update
-    setNotifications(prev => prev.filter(notif => notif.id !== n.id));
-    
+    setNotifications((prev) => prev.filter((notif) => notif.id !== n.id));
+
     const token = localStorage.getItem("token");
     try {
-      await axios.post(`http://localhost:3000/api/groups/settlements/${n.data.settlement_id}/confirm`, { status }, {
-        headers: { token }
-      });
+      await axios.post(
+        `http://localhost:3000/api/groups/settlements/${n.data.settlement_id}/confirm`,
+        { status },
+        {
+          headers: { token },
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+      );
       toast.success(`Settlement ${status}`);
       fetchNotifications();
     } catch (e) {
@@ -122,16 +148,21 @@ export default function Layout({ children }) {
 
   const handleAcceptInvite = async (n, status) => {
     // Optimistic UI update
-    setNotifications(prev => prev.filter(notif => notif.id !== n.id));
+    setNotifications((prev) => prev.filter((notif) => notif.id !== n.id));
 
     const token = localStorage.getItem("token");
     try {
-      await axios.post(`http://localhost:3000/api/groups/accept-invite`, { notificationId: n.id, status }, {
-        headers: { token }
-      });
+      await axios.post(
+        `http://localhost:3000/api/groups/accept-invite`,
+        { notificationId: n.id, status },
+        {
+          headers: { token },
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+      );
       toast.success(`Invitation ${status}`);
       fetchNotifications();
-      if (status === 'accepted') {
+      if (status === "accepted") {
         navigate(`/groups/${n.group_id}`);
       }
     } catch (e) {
@@ -175,22 +206,26 @@ export default function Layout({ children }) {
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-[#0b0f19] bg-gradient-radial transition-colors duration-200 overflow-hidden">
-      
       {/* Mobile Backdrop */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[40] lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed lg:static inset-y-0 left-0 w-64 glass lg:m-4 lg:rounded-3xl flex flex-col z-[50] transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <aside
+        className={`fixed lg:static inset-y-0 left-0 w-64 glass lg:m-4 lg:rounded-3xl flex flex-col z-[50] transition-transform duration-300 lg:translate-x-0 ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}`}
+      >
         <div className="p-8 flex items-center justify-between border-b border-white/20 dark:border-white/5">
           <h1 className="text-2xl lg:text-3xl font-extrabold bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-transparent drop-shadow-sm">
             ExpenseSync
           </h1>
-          <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl">
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden p-2 hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
+          >
             <X className="w-6 h-6 text-slate-400" />
           </button>
         </div>
@@ -245,11 +280,14 @@ export default function Layout({ children }) {
       <main className="flex-1 flex flex-col overflow-hidden relative lg:mr-4 lg:my-4 lg:rounded-3xl glass z-10">
         <header className="h-16 lg:h-20 flex items-center justify-between px-4 lg:px-10 border-b border-white/20 dark:border-white/5">
           <div className="flex items-center gap-4">
-            <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            >
               <Menu className="w-6 h-6 text-slate-600 dark:text-slate-300" />
             </button>
           </div>
-          
+
           <div className="flex items-center gap-2 lg:gap-5">
             {/* Notification bell */}
             <div className="relative" ref={notificationRef}>
@@ -266,43 +304,91 @@ export default function Layout({ children }) {
               </button>
 
               {notificationOpen && (
-                <div className="absolute right-0 top-full mt-2 w-[calc(100vw-32px)] sm:w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-white/10 overflow-hidden z-[60] animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute right-0 mt-2 w-[290px] sm:w-80 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-100 dark:border-white/10 overflow-hidden z-[60] animate-in fade-in zoom-in-95 duration-150">
                   <div className="px-5 py-4 border-b border-slate-100 dark:border-white/5 bg-gradient-to-r from-blue-600/5 to-indigo-600/5 flex justify-between items-center">
-                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">Notifications</h3>
-                    {notifications.length > 0 && <span className="text-[10px] font-black text-blue-500 uppercase">{notifications.length} Pending</span>}
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                      Notifications
+                    </h3>
+                    {notifications.length > 0 && (
+                      <span className="text-[10px] font-black text-blue-500 uppercase">
+                        {notifications.length} Pending
+                      </span>
+                    )}
                   </div>
                   <div className="max-h-96 overflow-y-auto">
                     {notifications.length === 0 ? (
-                      <div className="py-12 text-center">
+                      <div className="pb-10 text-center">
+                        <div className="flex items-end justify-end w-full p-5">
+                          <RefreshCw
+                            className="h-5 w-5 cursor-pointer text-slate-200 dark:text-slate-800 hover:text-slate-900 dark:hover:text-slate-100 hover:rotate-180 transition-transform duration-500 ease-in-out"
+                            onClick={handleRefresh}
+                          />
+                        </div>
+
                         <Bell className="w-10 h-10 text-slate-200 dark:text-slate-800 mx-auto mb-3" />
-                        <p className="text-xs text-slate-400 font-bold">No new notifications</p>
+                        <p className="text-xs text-slate-400 font-bold">
+                          No new notifications
+                        </p>
                       </div>
                     ) : (
                       notifications.map((n) => (
-                        <div key={n.id} className="p-4 border-b border-slate-50 dark:border-white/5 hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors">
+                        <div
+                          key={n.id}
+                          className="p-4 border-b border-slate-50 dark:border-white/5 hover:bg-slate-50/50 dark:hover:bg-white/5 transition-colors"
+                        >
                           <div className="flex gap-3">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${n.type === 'group_invite' ? 'bg-indigo-500/10' : 'bg-blue-500/10'}`}>
-                              {n.type === 'group_invite' ? <UserPlus className="w-4 h-4 text-indigo-500" /> : <DollarSign className="w-4 h-4 text-blue-500" />}
+                            <div
+                              className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${n.type === "group_invite" ? "bg-indigo-500/10" : "bg-blue-500/10"}`}
+                            >
+                              {n.type === "group_invite" ? (
+                                <UserPlus className="w-4 h-4 text-indigo-500" />
+                              ) : (
+                                <DollarSign className="w-4 h-4 text-blue-500" />
+                              )}
                             </div>
                             <div className="flex-1">
-                              {n.type === 'group_invite' ? (
+                              {n.type === "group_invite" ? (
                                 <p className="text-xs font-bold text-slate-900 dark:text-white mb-1">
-                                  <span className="font-black">{n.sender_name}</span> invited you to join <span className="font-black text-indigo-600">{n.data?.group_name}</span>
+                                  <span className="font-black">
+                                    {n.sender_name}
+                                  </span>{" "}
+                                  invited you to join{" "}
+                                  <span className="font-black text-indigo-600">
+                                    {n.data?.group_name}
+                                  </span>
                                 </p>
                               ) : (
                                 <p className="text-xs font-bold text-slate-900 dark:text-white mb-1">
-                                  <span className="font-black">{n.sender_name}</span> sent a settlement request of <span className="text-blue-600 font-black">${n.data.amount}</span> in <span className="font-black">{n.group_name}</span>
+                                  <span className="font-black">
+                                    {n.sender_name}
+                                  </span>{" "}
+                                  sent a settlement request of{" "}
+                                  <span className="text-blue-600 font-black">
+                                    ${n.data.amount}
+                                  </span>{" "}
+                                  in{" "}
+                                  <span className="font-black">
+                                    {n.group_name}
+                                  </span>
                                 </p>
                               )}
                               <div className="flex gap-2 mt-2">
                                 <button
-                                  onClick={() => n.type === 'group_invite' ? handleAcceptInvite(n, 'accepted') : handleConfirmNotif(n, 'accepted')}
-                                  className={`flex-1 py-1.5 text-white text-[10px] font-black rounded-lg transition-colors ${n.type === 'group_invite' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                  onClick={() =>
+                                    n.type === "group_invite"
+                                      ? handleAcceptInvite(n, "accepted")
+                                      : handleConfirmNotif(n, "accepted")
+                                  }
+                                  className={`flex-1 py-1.5 text-white text-[10px] font-black rounded-lg transition-colors ${n.type === "group_invite" ? "bg-indigo-600 hover:bg-indigo-700" : "bg-blue-600 hover:bg-blue-700"}`}
                                 >
                                   Accept
                                 </button>
                                 <button
-                                  onClick={() => n.type === 'group_invite' ? handleAcceptInvite(n, 'rejected') : handleConfirmNotif(n, 'rejected')}
+                                  onClick={() =>
+                                    n.type === "group_invite"
+                                      ? handleAcceptInvite(n, "rejected")
+                                      : handleConfirmNotif(n, "rejected")
+                                  }
                                   className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-black rounded-lg hover:bg-slate-200 transition-colors"
                                 >
                                   Decline

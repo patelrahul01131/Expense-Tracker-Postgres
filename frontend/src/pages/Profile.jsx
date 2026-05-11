@@ -39,7 +39,9 @@ export default function Profile() {
 
     try {
       const [profileRes, userRes] = await Promise.all([
-        axios.get("http://localhost:3000/api/profile", { headers: { token } }),
+        axios.get("http://localhost:3000/api/profile", {
+          headers: { token },
+        }),
         axios.get("http://localhost:3000/api/auth/user", {
           headers: { token },
         }),
@@ -150,13 +152,6 @@ export default function Profile() {
         <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
           My Profile
         </h1>
-        <button
-          onClick={openEdit}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold transition-all shadow-lg shadow-blue-600/30 hover:shadow-blue-600/50 hover:-translate-y-0.5"
-        >
-          <Edit className="w-5 h-5" />
-          Edit Profile
-        </button>
       </div>
 
       <div className="glass-panel rounded-[2.5rem] border border-white/20 dark:border-white/5 shadow-xl overflow-hidden relative">
@@ -190,30 +185,39 @@ export default function Profile() {
             </div>
           </div>
 
-          <div className="pt-28">
-            <div className="flex items-center gap-3">
-              <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                {profile?.name || "—"}
-              </h2>
-              <Shield className="w-6 h-6 text-blue-500 drop-shadow-sm" />
+          <div className="pt-28 flex flex-col  gap-y-2 md:flex-row md:justify-between md:items-end">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-3">
+                <h2 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                  {profile?.name || "—"}
+                </h2>
+                <Shield className="w-6 h-6 text-blue-500 drop-shadow-sm" />
+              </div>
+              <p className="text-slate-500 dark:text-slate-400 mt-1 font-medium flex items-center gap-2 flex-wrap">
+                <span className="bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-transparent font-bold">
+                  {user?.full_name || "Member"}
+                </span>
+                •&nbsp;
+                <Mail className="w-4 h-4" />
+                {user?.email || "—"}
+                •&nbsp;
+                <Calendar className="w-4 h-4" />
+                Joined{" "}
+                {profile?.created_at
+                  ? new Date(profile.created_at).toLocaleDateString("en-US", {
+                      month: "long",
+                      year: "numeric",
+                    })
+                  : "—"}
+              </p>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 mt-1 font-medium flex items-center gap-2 flex-wrap">
-              <span className="bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-transparent font-bold">
-                {user?.full_name || "Member"}
-              </span>
-              •&nbsp;
-              <Mail className="w-4 h-4" />
-              {user?.email || "—"}
-              •&nbsp;
-              <Calendar className="w-4 h-4" />
-              Joined{" "}
-              {profile?.created_at
-                ? new Date(profile.created_at).toLocaleDateString("en-US", {
-                    month: "long",
-                    year: "numeric",
-                  })
-                : "—"}
-            </p>
+            <button
+              onClick={openEdit}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl font-bold transition-all shadow-lg shadow-blue-600/30 hover:shadow-blue-600/50 hover:-translate-y-0.5"
+            >
+              <Edit className="w-5 h-5" />
+              Edit Profile
+            </button>
           </div>
 
           <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -261,7 +265,7 @@ export default function Profile() {
               <h3 className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-6">
                 Account Stats
               </h3>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-2">
                 <div className="bg-white/50 dark:bg-black/20 p-5 rounded-2xl">
                   <div className="flex items-center gap-2 mb-2 text-slate-500 dark:text-slate-400">
                     <Activity className="w-4 h-4" />

@@ -153,14 +153,16 @@ const inviteToGroupController = async (req, res) => {
     }
 
     // Get group name for notification
-    const groupRes = await pool.query("SELECT name FROM groups WHERE id = $1", [groupId]);
+    const groupRes = await pool.query("SELECT name FROM groups WHERE id = $1", [
+      groupId,
+    ]);
     const groupName = groupRes.rows[0].name;
 
     // Send notification
     await pool.query(
       `INSERT INTO notifications (user_id, group_id, sender_id, type, data)
        VALUES ($1, $2, $3, 'group_invite', $4)`,
-      [targetUserId, groupId, requestingUserId, { group_name: groupName }]
+      [targetUserId, groupId, requestingUserId, { group_name: groupName }],
     );
 
     res.status(200).json({ message: "Invitation sent!" });
@@ -177,7 +179,9 @@ const acceptGroupInviteController = async (req, res) => {
     const userId = req.user?.id;
 
     if (!notificationId || !status) {
-      return res.status(400).json({ message: "Notification ID and status are required" });
+      return res
+        .status(400)
+        .json({ message: "Notification ID and status are required" });
     }
 
     await client.query("BEGIN");
@@ -185,7 +189,7 @@ const acceptGroupInviteController = async (req, res) => {
     // Get notification details
     const notifRes = await client.query(
       `SELECT * FROM notifications WHERE id = $1 AND user_id = $2 AND type = 'group_invite'`,
-      [notificationId, userId]
+      [notificationId, userId],
     );
 
     if (notifRes.rows.length === 0) {
@@ -195,21 +199,24 @@ const acceptGroupInviteController = async (req, res) => {
     const notification = notifRes.rows[0];
     const groupId = notification.group_id;
 
-    if (status === 'accepted') {
+    if (status === "accepted") {
       // Find or create default profile for this user
       let profileRes = await client.query(
         `SELECT id FROM profiles WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1`,
-        [userId]
+        [userId],
       );
-      
+
       let profileId;
       if (profileRes.rows.length === 0) {
         // Create a default profile if none exists
-        const userRes = await client.query("SELECT full_name FROM users WHERE id = $1", [userId]);
+        const userRes = await client.query(
+          "SELECT full_name FROM users WHERE id = $1",
+          [userId],
+        );
         const fullName = userRes.rows[0].full_name;
         const newProfile = await client.query(
           `INSERT INTO profiles (user_id, name, type) VALUES ($1, $2, 'personal') RETURNING id`,
-          [userId, fullName]
+          [userId, fullName],
         );
         profileId = newProfile.rows[0].id;
       } else {
@@ -219,13 +226,13 @@ const acceptGroupInviteController = async (req, res) => {
       // Check if already a member (safety)
       const memberCheck = await client.query(
         `SELECT id FROM group_members WHERE group_id = $1 AND user_id = $2`,
-        [groupId, userId]
+        [groupId, userId],
       );
 
       if (memberCheck.rows.length === 0) {
         await client.query(
           `INSERT INTO group_members (group_id, profile_id, user_id, role) VALUES ($1, $2, $3, 'member')`,
-          [groupId, profileId, userId]
+          [groupId, profileId, userId],
         );
       }
     }
@@ -233,7 +240,7 @@ const acceptGroupInviteController = async (req, res) => {
     // Mark notification as read
     await client.query(
       `UPDATE notifications SET is_read = TRUE, status = $1 WHERE id = $2`,
-      [status, notificationId]
+      [status, notificationId],
     );
 
     await client.query("COMMIT");
@@ -295,9 +302,6 @@ const getGroupExpensesController = async (req, res) => {
     const { groupId } = req.params;
     const userId = req.user?.id;
 
-    console.log("groupId", groupId);
-    console.log("userId", userId);
-
     // Verify membership
     const memberCheck = await pool.query(
       `SELECT gm.profile_id FROM group_members gm
@@ -305,7 +309,6 @@ const getGroupExpensesController = async (req, res) => {
        WHERE gm.group_id = $1 AND p.user_id = $2`,
       [groupId, userId],
     );
-    console.log("memberCheck", memberCheck.rows);
     if (memberCheck.rows.length === 0) {
       return res.status(403).json({ message: "Not a member of this group" });
     }
@@ -320,6 +323,7 @@ const getGroupExpensesController = async (req, res) => {
           ge.notes,
           ge.split_type,
           ge.created_at,
+          ge.paid_by_profile_id,
           p.name AS added_by_profile,
           p.avatar_url AS added_by_avatar,
           u.full_name AS added_by_name,
@@ -348,8 +352,6 @@ const getGroupExpensesController = async (req, res) => {
         ORDER BY ge.expense_date DESC, ge.created_at DESC`,
       [groupId],
     );
-
-    console.log("result.rows", result.rows);
     res.status(200).json(result.rows);
   } catch (error) {
     console.log("getGroupExpensesController error:", error);
@@ -363,19 +365,21 @@ const addGroupExpenseController = async (req, res) => {
     const { groupId } = req.params;
     const userId = req.user?.id;
     const profileId = req.profile?.id;
-    const { 
-      title, 
-      amount, 
-      expense_type, 
-      expense_date, 
-      category_id, 
-      notes, 
+    const {
+      title,
+      amount,
+      expense_type,
+      expense_date,
+      category_id,
+      notes,
       split_type, // 'equal', 'percent', 'value', 'item'
-      splits // array of { profile_id, amount, percent }
+      splits, // array of { profile_id, amount, percent }
     } = req.body;
 
     if (!title || !amount || !expense_date) {
-      return res.status(400).json({ message: "Title, amount, and date are required" });
+      return res
+        .status(400)
+        .json({ message: "Title, amount, and date are required" });
     }
 
     // Verify membership
@@ -406,7 +410,7 @@ const addGroupExpenseController = async (req, res) => {
         expense_date,
         category_id || null,
         notes || null,
-        split_type || "equal"
+        split_type || "equal",
       ],
     );
     const expense = result.rows[0];
@@ -415,12 +419,18 @@ const addGroupExpenseController = async (req, res) => {
     if (splits && splits.length > 0) {
       for (const split of splits) {
         // Automatically mark the payer's share as paid
-        const splitStatus = split.profile_id === profileId ? 'paid' : 'pending';
-        
+        const splitStatus = split.profile_id === profileId ? "paid" : "pending";
+
         await client.query(
           `INSERT INTO group_expense_splits (expense_id, profile_id, amount, percent, status)
            VALUES ($1, $2, $3, $4, $5)`,
-          [expense.id, split.profile_id, split.amount, split.percent || null, splitStatus]
+          [
+            expense.id,
+            split.profile_id,
+            split.amount,
+            split.percent || null,
+            splitStatus,
+          ],
         );
       }
     }
@@ -461,7 +471,7 @@ const getGroupBalancesController = async (req, res) => {
        WHERE ge.group_id = $1 
        AND ges.status = 'pending' 
        AND ges.profile_id != ge.paid_by_profile_id`,
-      [groupId]
+      [groupId],
     );
 
     // 2. Get all settlements with full details
@@ -481,7 +491,7 @@ const getGroupBalancesController = async (req, res) => {
        JOIN users u2 ON p2.user_id = u2.id
        WHERE gs.group_id = $1
        ORDER BY gs.created_at DESC`,
-      [groupId]
+      [groupId],
     );
 
     // 3. Process balances (simplified)
@@ -489,7 +499,7 @@ const getGroupBalancesController = async (req, res) => {
     // For now, let's just return raw debts
     res.status(200).json({
       debts: debtsResult.rows,
-      settlements: settlementsResult.rows
+      settlements: settlementsResult.rows,
     });
   } catch (error) {
     console.log("getGroupBalancesController error:", error);
@@ -515,14 +525,14 @@ const settlePaymentController = async (req, res) => {
       `INSERT INTO group_settlements (group_id, from_profile_id, to_profile_id, amount, status, confirmed)
        VALUES ($1, $2, $3, $4, 'pending', FALSE)
        RETURNING *`,
-      [groupId, from_profile_id, to_profile_id, amount]
+      [groupId, from_profile_id, to_profile_id, amount],
     );
     const settlement = settlementRes.rows[0];
 
     // 2. Get the target user ID (the one receiving the money)
     const targetProfileRes = await client.query(
       `SELECT user_id FROM profiles WHERE id = $1`,
-      [to_profile_id]
+      [to_profile_id],
     );
     const targetUserId = targetProfileRes.rows[0].user_id;
 
@@ -534,17 +544,20 @@ const settlePaymentController = async (req, res) => {
         targetUserId,
         userId,
         groupId,
-        JSON.stringify({ 
-          settlement_id: settlement.id, 
-          amount, 
+        JSON.stringify({
+          settlement_id: settlement.id,
+          amount,
           from_profile_id,
-          split_id: split_id || null
-        })
-      ]
+          split_id: split_id || null,
+        }),
+      ],
     );
 
     await client.query("COMMIT");
-    res.status(201).json({ message: "Settlement request sent. Waiting for confirmation.", settlement });
+    res.status(201).json({
+      message: "Settlement request sent. Waiting for confirmation.",
+      settlement,
+    });
   } catch (error) {
     await client.query("ROLLBACK");
     console.log("settlePaymentController error:", error);
@@ -568,7 +581,7 @@ const confirmSettlementController = async (req, res) => {
       `SELECT s.*, n.data FROM group_settlements s 
        JOIN notifications n ON (n.data->>'settlement_id')::uuid = s.id
        WHERE s.id = $1`,
-      [settlementId]
+      [settlementId],
     );
 
     if (settlementInfo.rows.length === 0) {
@@ -576,28 +589,28 @@ const confirmSettlementController = async (req, res) => {
     }
 
     const settlement = settlementInfo.rows[0];
-    
+
     // Prevent re-processing
-    if (settlement.status !== 'pending') {
+    if (settlement.status !== "pending") {
       return res.status(400).json({ message: "Settlement already processed" });
     }
 
     const splitId = settlement.data?.split_id;
 
     // 1. Update settlement
-    const isConfirmed = status === 'accepted';
+    const isConfirmed = status === "accepted";
     await client.query(
       `UPDATE group_settlements 
        SET confirmed = $1, confirmed_at = CURRENT_TIMESTAMP, status = $2 
        WHERE id = $3`,
-      [isConfirmed, isConfirmed ? 'completed' : 'failed', settlementId]
+      [isConfirmed, isConfirmed ? "completed" : "failed", settlementId],
     );
 
     // 2. If split_id exists, mark split as paid
     if (isConfirmed && splitId) {
       await client.query(
         `UPDATE group_expense_splits SET status = 'paid' WHERE id = $1`,
-        [splitId]
+        [splitId],
       );
     }
 
@@ -606,7 +619,7 @@ const confirmSettlementController = async (req, res) => {
       `UPDATE notifications 
        SET status = $1, is_read = TRUE 
        WHERE (data->>'settlement_id')::uuid = $2`,
-      [status, settlementId]
+      [status, settlementId],
     );
 
     await client.query("COMMIT");
@@ -630,7 +643,7 @@ const getNotificationsController = async (req, res) => {
        JOIN groups g ON n.group_id = g.id
        WHERE n.user_id = $1 AND n.is_read = FALSE
        ORDER BY n.created_at DESC`,
-      [userId]
+      [userId],
     );
     res.status(200).json(result.rows);
   } catch (error) {
@@ -654,7 +667,7 @@ const deleteGroupExpenseController = async (req, res) => {
       return res.status(404).json({ message: "Expense not found" });
     }
 
-    const isOwner = expenseCheck.rows[0].added_by_profile_id === profileId;
+    const isOwner = expenseCheck.rows[0].paid_by_profile_id === profileId;
     const adminCheck = await pool.query(
       `SELECT gm.id FROM group_members gm
        JOIN profiles p ON gm.profile_id = p.id

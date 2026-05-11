@@ -134,7 +134,8 @@ function Home() {
 
   const percentage_calculate = (current, previous) => {
     if (!previous) return 0;
-    return ((current - previous) / previous) * 100;
+    const result = ((current - previous) / previous) * 100;
+    return result == Infinity ? 0 : result;
   };
 
   const getAllStates = async () => {

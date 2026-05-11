@@ -42,7 +42,6 @@ const getAllExpenseController = async (req, res) => {
 
 const addExpenseController = async (req, res) => {
   const profile_id = req.profile.id;
-  console.log("req.body from addExpenseController:", req.body);
   try {
     const { amount, category, date, title, expenseType } = req.body;
     const query = `INSERT INTO expenses (amount, category_id, expense_date, title, expense_type, profile_id) VALUES ($1, $2, $3, $4, $5, $6)`;
