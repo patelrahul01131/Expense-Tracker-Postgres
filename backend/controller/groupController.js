@@ -5,7 +5,7 @@ const getGroupsController = async (req, res) => {
     const userId = req.user?.id;
     if (!userId) return res.status(400).json({ message: "No user found" });
 
-    // Fetch all groups where ANY profile of this user is a member
+    // Fetch all groups where this user is a member
     const result = await pool.query(
       `SELECT DISTINCT
           g.id,
@@ -17,8 +17,7 @@ const getGroupsController = async (req, res) => {
           (SELECT COUNT(*) FROM group_members WHERE group_id = g.id) AS member_count
         FROM groups g
         JOIN group_members gm ON g.id = gm.group_id
-        JOIN profiles p ON gm.profile_id = p.id
-        WHERE p.user_id = $1
+        WHERE gm.user_id = $1
         ORDER BY g.created_at DESC`,
       [userId],
     );
@@ -32,22 +31,17 @@ const getGroupsController = async (req, res) => {
 
 const createGroupController = async (req, res) => {
   try {
-    const profileId = req.profile?.id;
+    const userId = req.user?.id;
     const { name, description } = req.body;
-
-    if (!name)
-      return res.status(400).json({ message: "Group name is required" });
-
     const groupResult = await pool.query(
-      `INSERT INTO groups (name, description, created_by_profile_id) VALUES ($1, $2, $3) RETURNING *`,
-      [name, description || null, profileId],
+      `INSERT INTO groups (name, description, created_by_user_id) VALUES ($1, $2, $3) RETURNING *`,
+      [name, description || null, userId],
     );
     const group = groupResult.rows[0];
 
-    const userId = req.user?.id;
     await pool.query(
-      `INSERT INTO group_members (group_id, profile_id, user_id, role) VALUES ($1, $2, $3, 'admin')`,
-      [group.id, profileId, userId],
+      `INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, 'admin')`,
+      [group.id, userId],
     );
 
     res.status(201).json({ message: "Group created successfully", group });
@@ -63,11 +57,9 @@ const getGroupMembersController = async (req, res) => {
     const { groupId } = req.params;
     const userId = req.user?.id;
 
-    // Verify requesting user is a member via any of their profiles
+    // Verify membership at user level
     const memberCheck = await pool.query(
-      `SELECT gm.id FROM group_members gm
-       JOIN profiles p ON gm.profile_id = p.id
-       WHERE gm.group_id = $1 AND p.user_id = $2`,
+      `SELECT id FROM group_members WHERE group_id = $1 AND user_id = $2`,
       [groupId, userId],
     );
     if (memberCheck.rows.length === 0) {
@@ -76,18 +68,19 @@ const getGroupMembersController = async (req, res) => {
 
     const result = await pool.query(
       `SELECT 
-          gm.id,
+          gm.id AS membership_id,
           gm.role,
-          p.id AS profile_id,
-          p.name AS profile_name,
-          p.avatar_url,
+          u.id AS user_id,
+          u.id AS profile_id, -- Keep profile_id for frontend compatibility, using user_id
+          u.id AS id,         -- Added 'id' field for frontend compatibility
           u.full_name,
-          u.email
+          u.full_name AS profile_name,
+          u.email,
+          (SELECT avatar_url FROM profiles WHERE user_id = u.id ORDER BY created_at ASC LIMIT 1) AS avatar_url
         FROM group_members gm
-        JOIN profiles p ON gm.profile_id = p.id
-        JOIN users u ON p.user_id = u.id
+        JOIN users u ON gm.user_id = u.id
         WHERE gm.group_id = $1
-        ORDER BY gm.id ASC`,
+        ORDER BY gm.joined_at ASC`,
       [groupId],
     );
 
@@ -107,11 +100,10 @@ const inviteToGroupController = async (req, res) => {
 
     if (!email) return res.status(400).json({ message: "Email is required" });
 
-    // Verify requester is admin of this group (via any of their profiles)
+    // Verify requester is admin of this group (via user level)
     const adminCheck = await pool.query(
-      `SELECT gm.id FROM group_members gm
-       JOIN profiles p ON gm.profile_id = p.id
-       WHERE gm.group_id = $1 AND p.user_id = $2 AND gm.role = 'admin'`,
+      `SELECT id FROM group_members 
+       WHERE group_id = $1 AND user_id = $2 AND role = 'admin'`,
       [groupId, requestingUserId],
     );
     if (adminCheck.rows.length === 0) {
@@ -139,11 +131,10 @@ const inviteToGroupController = async (req, res) => {
         .json({ message: "You cannot invite yourself to a group" });
     }
 
-    // Check: is any profile of this user already a member of this group?
+    // Check: is user already a member of this group?
     const existingMember = await pool.query(
-      `SELECT gm.id FROM group_members gm
-       JOIN profiles p ON gm.profile_id = p.id
-       WHERE gm.group_id = $1 AND p.user_id = $2`,
+      `SELECT id FROM group_members 
+       WHERE group_id = $1 AND user_id = $2`,
       [groupId, targetUserId],
     );
     if (existingMember.rows.length > 0) {
@@ -200,29 +191,6 @@ const acceptGroupInviteController = async (req, res) => {
     const groupId = notification.group_id;
 
     if (status === "accepted") {
-      // Find or create default profile for this user
-      let profileRes = await client.query(
-        `SELECT id FROM profiles WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1`,
-        [userId],
-      );
-
-      let profileId;
-      if (profileRes.rows.length === 0) {
-        // Create a default profile if none exists
-        const userRes = await client.query(
-          "SELECT full_name FROM users WHERE id = $1",
-          [userId],
-        );
-        const fullName = userRes.rows[0].full_name;
-        const newProfile = await client.query(
-          `INSERT INTO profiles (user_id, name, type) VALUES ($1, $2, 'personal') RETURNING id`,
-          [userId, fullName],
-        );
-        profileId = newProfile.rows[0].id;
-      } else {
-        profileId = profileRes.rows[0].id;
-      }
-
       // Check if already a member (safety)
       const memberCheck = await client.query(
         `SELECT id FROM group_members WHERE group_id = $1 AND user_id = $2`,
@@ -231,8 +199,8 @@ const acceptGroupInviteController = async (req, res) => {
 
       if (memberCheck.rows.length === 0) {
         await client.query(
-          `INSERT INTO group_members (group_id, profile_id, user_id, role) VALUES ($1, $2, $3, 'member')`,
-          [groupId, profileId, userId],
+          `INSERT INTO group_members (group_id, user_id, role) VALUES ($1, $2, 'member')`,
+          [groupId, userId],
         );
       }
     }
@@ -260,22 +228,15 @@ const removeMemberController = async (req, res) => {
     const { groupId, memberId } = req.params;
     const requestingUserId = req.user?.id;
 
-    // Check if requester is admin via any profile
+    // Check if requester is admin via user level
     const adminCheck = await pool.query(
-      `SELECT gm.id FROM group_members gm
-       JOIN profiles p ON gm.profile_id = p.id
-       WHERE gm.group_id = $1 AND p.user_id = $2 AND gm.role = 'admin'`,
+      `SELECT id FROM group_members 
+       WHERE group_id = $1 AND user_id = $2 AND role = 'admin'`,
       [groupId, requestingUserId],
     );
 
-    // Check if removing own profile
-    const selfCheck = await pool.query(
-      `SELECT gm.id FROM group_members gm
-       JOIN profiles p ON gm.profile_id = p.id
-       WHERE gm.group_id = $1 AND gm.profile_id = $2 AND p.user_id = $3`,
-      [groupId, memberId, requestingUserId],
-    );
-    const isSelf = selfCheck.rows.length > 0;
+    // Check if removing own user
+    const isSelf = memberId === requestingUserId;
 
     if (!isSelf && adminCheck.rows.length === 0) {
       return res
@@ -284,7 +245,7 @@ const removeMemberController = async (req, res) => {
     }
 
     await pool.query(
-      `DELETE FROM group_members WHERE group_id = $1 AND profile_id = $2`,
+      `DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`,
       [groupId, memberId],
     );
 
@@ -304,9 +265,8 @@ const getGroupExpensesController = async (req, res) => {
 
     // Verify membership
     const memberCheck = await pool.query(
-      `SELECT gm.profile_id FROM group_members gm
-       JOIN profiles p ON gm.profile_id = p.id
-       WHERE gm.group_id = $1 AND p.user_id = $2`,
+      `SELECT id FROM group_members 
+       WHERE group_id = $1 AND user_id = $2`,
       [groupId, userId],
     );
     if (memberCheck.rows.length === 0) {
@@ -323,30 +283,29 @@ const getGroupExpensesController = async (req, res) => {
           ge.notes,
           ge.split_type,
           ge.created_at,
-          ge.paid_by_profile_id,
-          p.name AS added_by_profile,
-          p.avatar_url AS added_by_avatar,
+          ge.paid_by_user_id AS paid_by_profile_id, -- Keep field name for frontend
           u.full_name AS added_by_name,
+          u.full_name AS added_by_profile,
+          (SELECT avatar_url FROM profiles WHERE user_id = u.id ORDER BY created_at ASC LIMIT 1) AS added_by_avatar,
           c.name AS category_name,
           c.color AS category_color,
-          (
+          COALESCE((
             SELECT json_agg(json_build_object(
               'id', ges.id,
-              'profile_id', ges.profile_id,
+              'profile_id', ges.user_id, -- Return user_id as profile_id
+              'user_id', ges.user_id,
               'amount', ges.amount,
               'percent', ges.percent,
               'status', ges.status,
-              'name', p_split.name,
+              'name', u_split.full_name,
               'full_name', u_split.full_name
             ))
             FROM group_expense_splits ges
-            JOIN profiles p_split ON ges.profile_id = p_split.id
-            JOIN users u_split ON p_split.user_id = u_split.id
+            JOIN users u_split ON ges.user_id = u_split.id
             WHERE ges.expense_id = ge.id
-          ) AS splits
+          ), '[]'::json) AS splits
         FROM group_expenses ge
-        JOIN profiles p ON ge.paid_by_profile_id = p.id
-        JOIN users u ON p.user_id = u.id
+        JOIN users u ON ge.paid_by_user_id = u.id
         LEFT JOIN categories c ON ge.category_id = c.id
         WHERE ge.group_id = $1
         ORDER BY ge.expense_date DESC, ge.created_at DESC`,
@@ -384,13 +343,21 @@ const addGroupExpenseController = async (req, res) => {
 
     // Verify membership
     const memberCheck = await pool.query(
-      `SELECT gm.id FROM group_members gm
-       JOIN profiles p ON gm.profile_id = p.id
-       WHERE gm.group_id = $1 AND p.user_id = $2`,
+      `SELECT id FROM group_members 
+       WHERE group_id = $1 AND user_id = $2`,
       [groupId, userId],
     );
     if (memberCheck.rows.length === 0) {
       return res.status(403).json({ message: "Not a member of this group" });
+    }
+
+    if (!splits || !Array.isArray(splits) || splits.length === 0) {
+      return res
+        .status(400)
+        .json({
+          message:
+            "Split details are required. Every expense must be shared with at least one person (including yourself).",
+        });
     }
 
     await client.query("BEGIN");
@@ -398,12 +365,12 @@ const addGroupExpenseController = async (req, res) => {
     // 1. Insert the main expense
     const result = await client.query(
       `INSERT INTO group_expenses 
-        (group_id, paid_by_profile_id, title, total_amount, expense_type, expense_date, category_id, notes, split_type)
+        (group_id, paid_by_user_id, title, total_amount, expense_type, expense_date, category_id, notes, split_type)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
       [
         groupId,
-        profileId,
+        userId,
         title,
         amount,
         expense_type || "expense",
@@ -418,15 +385,39 @@ const addGroupExpenseController = async (req, res) => {
     // 2. Insert splits
     if (splits && splits.length > 0) {
       for (const split of splits) {
-        // Automatically mark the payer's share as paid
-        const splitStatus = split.profile_id === profileId ? "paid" : "pending";
+        // Resolve user_id if profile_id was passed
+        let targetUserId = split.user_id || split.profile_id;
+
+        // If it's a profile_id, it might need resolution.
+        // But in our new system, profile_id IS user_id in the frontend.
+        // We check if it exists in users table first.
+        const userCheck = await client.query(
+          "SELECT id FROM users WHERE id = $1",
+          [targetUserId],
+        );
+
+        if (userCheck.rows.length === 0) {
+          // Maybe it's a real legacy profile_id
+          const profileRes = await client.query(
+            "SELECT user_id FROM profiles WHERE id = $1",
+            [targetUserId],
+          );
+          if (profileRes.rows.length > 0) {
+            targetUserId = profileRes.rows[0].user_id;
+          } else {
+            // Not found in users or profiles, skip
+            continue;
+          }
+        }
+
+        const splitStatus = targetUserId === userId ? "paid" : "pending";
 
         await client.query(
-          `INSERT INTO group_expense_splits (expense_id, profile_id, amount, percent, status)
+          `INSERT INTO group_expense_splits (expense_id, user_id, amount, percent, status)
            VALUES ($1, $2, $3, $4, $5)`,
           [
             expense.id,
-            split.profile_id,
+            targetUserId,
             split.amount,
             split.percent || null,
             splitStatus,
@@ -452,29 +443,81 @@ const getGroupBalancesController = async (req, res) => {
     const userId = req.user?.id;
 
     // 1. Get all pending splits (who owes whom)
+    // 1. Get aggregated pending debts for individual display (grouped by pair)
     const debtsResult = await pool.query(
       `SELECT 
-          ge.paid_by_profile_id,
-          ges.id AS split_id,
-          ges.profile_id AS owes_profile_id,
-          ges.amount,
-          p1.name AS paid_by_name,
-          p2.name AS owes_name,
+          ge.paid_by_user_id AS paid_by_profile_id,
+          ges.user_id AS owes_profile_id,
+          SUM(ges.amount) as amount,
+          u1.full_name AS paid_by_name,
+          u2.full_name AS owes_name,
           u1.full_name AS paid_by_full_name,
           u2.full_name AS owes_full_name
        FROM group_expenses ge
        JOIN group_expense_splits ges ON ge.id = ges.expense_id
-       JOIN profiles p1 ON ge.paid_by_profile_id = p1.id
-       JOIN profiles p2 ON ges.profile_id = p2.id
-       JOIN users u1 ON p1.user_id = u1.id
-       JOIN users u2 ON p2.user_id = u2.id
+       JOIN users u1 ON ge.paid_by_user_id = u1.id
+       JOIN users u2 ON ges.user_id = u2.id
        WHERE ge.group_id = $1 
        AND ges.status = 'pending' 
-       AND ges.profile_id != ge.paid_by_profile_id`,
+       AND ges.user_id != ge.paid_by_user_id
+       GROUP BY ge.paid_by_user_id, ges.user_id, u1.full_name, u2.full_name`,
       [groupId],
     );
 
-    // 2. Get all settlements with full details
+    // 2. Get total paid in expenses per user
+    const paidInExpenses = await pool.query(
+      `SELECT paid_by_user_id as pid, SUM(total_amount) as amount
+       FROM group_expenses WHERE group_id = $1 GROUP BY paid_by_user_id`,
+      [groupId],
+    );
+
+    // 3. Get total shares of expenses per user
+    const sharesOfExpenses = await pool.query(
+      `SELECT user_id as pid, SUM(amount) as amount
+       FROM group_expense_splits ges
+       JOIN group_expenses ge ON ges.expense_id = ge.id
+       WHERE ge.group_id = $1 GROUP BY user_id`,
+      [groupId],
+    );
+
+    // 4. Get total settlements paid/received per user
+    const settlementsPaid = await pool.query(
+      `SELECT from_user_id as pid, SUM(amount) as amount
+       FROM group_settlements WHERE group_id = $1 AND status = 'completed' GROUP BY from_user_id`,
+      [groupId],
+    );
+    const settlementsRecv = await pool.query(
+      `SELECT to_user_id as pid, SUM(amount) as amount
+       FROM group_settlements WHERE group_id = $1 AND status = 'completed' GROUP BY to_user_id`,
+      [groupId],
+    );
+
+    // 5. Build net balances map
+    const netBalances = {};
+    const membersRes = await pool.query(
+      `SELECT user_id as pid FROM group_members WHERE group_id = $1`,
+      [groupId],
+    );
+    membersRes.rows.forEach((m) => (netBalances[m.pid] = 0));
+
+    paidInExpenses.rows.forEach(
+      (r) =>
+        (netBalances[r.pid] = (netBalances[r.pid] || 0) + Number(r.amount)),
+    );
+    sharesOfExpenses.rows.forEach(
+      (r) =>
+        (netBalances[r.pid] = (netBalances[r.pid] || 0) - Number(r.amount)),
+    );
+    settlementsPaid.rows.forEach(
+      (r) =>
+        (netBalances[r.pid] = (netBalances[r.pid] || 0) + Number(r.amount)),
+    );
+    settlementsRecv.rows.forEach(
+      (r) =>
+        (netBalances[r.pid] = (netBalances[r.pid] || 0) - Number(r.amount)),
+    );
+
+    // Convert net balances into the "debts" format the frontend expects for netting
     const settlementsResult = await pool.query(
       `SELECT 
           gs.id, 
@@ -482,24 +525,22 @@ const getGroupBalancesController = async (req, res) => {
           gs.status, 
           gs.confirmed, 
           gs.created_at, 
+          gs.from_user_id,
+          gs.to_user_id,
           u1.full_name AS from_name, 
           u2.full_name AS to_name
        FROM group_settlements gs
-       JOIN profiles p1 ON gs.from_profile_id = p1.id
-       JOIN users u1 ON p1.user_id = u1.id
-       JOIN profiles p2 ON gs.to_profile_id = p2.id
-       JOIN users u2 ON p2.user_id = u2.id
+       JOIN users u1 ON gs.from_user_id = u1.id
+       JOIN users u2 ON gs.to_user_id = u2.id
        WHERE gs.group_id = $1
        ORDER BY gs.created_at DESC`,
       [groupId],
     );
 
-    // 3. Process balances (simplified)
-    // In a real app, you'd use a debt simplification algorithm (Simplify Debts)
-    // For now, let's just return raw debts
     res.status(200).json({
       debts: debtsResult.rows,
       settlements: settlementsResult.rows,
+      netBalances,
     });
   } catch (error) {
     console.log("getGroupBalancesController error:", error);
@@ -518,13 +559,41 @@ const settlePaymentController = async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    // Resolve the actual user IDs
+    let effectiveFromId = from_profile_id;
+    let effectiveToId = to_profile_id;
+
+    // Check if they are user IDs first
+    const fromUserCheck = await pool.query(
+      "SELECT id FROM users WHERE id = $1",
+      [from_profile_id],
+    );
+    if (fromUserCheck.rows.length === 0) {
+      const fromRes = await pool.query(
+        "SELECT user_id FROM profiles WHERE id = $1",
+        [from_profile_id],
+      );
+      if (fromRes.rows.length > 0) effectiveFromId = fromRes.rows[0].user_id;
+    }
+
+    const toUserCheck = await pool.query("SELECT id FROM users WHERE id = $1", [
+      to_profile_id,
+    ]);
+    if (toUserCheck.rows.length === 0) {
+      const toRes = await pool.query(
+        "SELECT user_id FROM profiles WHERE id = $1",
+        [to_profile_id],
+      );
+      if (toRes.rows.length > 0) effectiveToId = toRes.rows[0].user_id;
+    }
+
     await client.query("BEGIN");
 
     // Check for existing pending settlement
     const existing = await client.query(
       `SELECT id FROM group_settlements 
-       WHERE group_id = $1 AND from_profile_id = $2 AND to_profile_id = $3 AND status = 'pending'`,
-      [groupId, from_profile_id, to_profile_id],
+       WHERE group_id = $1 AND from_user_id = $2 AND to_user_id = $3 AND status = 'pending'`,
+      [groupId, effectiveFromId, effectiveToId],
     );
     if (existing.rows.length > 0) {
       await client.query("ROLLBACK");
@@ -536,23 +605,22 @@ const settlePaymentController = async (req, res) => {
 
     // 1. Create the settlement record
     const settlementRes = await client.query(
-      `INSERT INTO group_settlements (group_id, from_profile_id, to_profile_id, amount, status, confirmed, split_id)
+      `INSERT INTO group_settlements (group_id, from_user_id, to_user_id, amount, status, confirmed, split_id)
        VALUES ($1, $2, $3, $4, 'pending', FALSE, $5)
        RETURNING *`,
-      [groupId, from_profile_id, to_profile_id, amount, split_id],
+      [groupId, effectiveFromId, effectiveToId, amount, split_id],
     );
     const settlement = settlementRes.rows[0];
 
     // 2. Create notification for the recipient
     await client.query(
       `INSERT INTO notifications (user_id, group_id, sender_id, type, data)
-       SELECT p.user_id, $1, $2, 'settlement_request', $3
-       FROM profiles p WHERE p.id = $4`,
+       VALUES ($1, $2, $3, 'settlement_request', $4)`,
       [
+        effectiveToId,
         groupId,
         userId,
         JSON.stringify({ settlement_id: settlement.id, amount, split_id }),
-        to_profile_id,
       ],
     );
 
@@ -619,29 +687,51 @@ const confirmSettlementController = async (req, res) => {
         );
       } else {
         // Overall settlement: Auto-apply to pending splits to clear "Pending" statuses
-        let remainingAmount = Number(settlement.amount);
-        const pendingSplits = await client.query(
+        let availableFunds = Number(settlement.amount);
+
+        // 1. Mark reciprocal splits (where recipient owes sender) as paid (Netting)
+        const reciprocalSplits = await client.query(
           `SELECT ges.id, ges.amount 
            FROM group_expense_splits ges
            JOIN group_expenses ge ON ges.expense_id = ge.id
            WHERE ge.group_id = $1 
-             AND ges.profile_id = $2 
-             AND ge.paid_by_profile_id = $3 
-             AND ges.status = 'pending'
-           ORDER BY ge.expense_date ASC, ge.created_at ASC`,
-          [settlement.group_id, settlement.from_profile_id, settlement.to_profile_id],
+             AND ges.user_id = $2 
+             AND ge.paid_by_user_id = $3 
+             AND ges.status = 'pending'`,
+          [settlement.group_id, settlement.to_user_id, settlement.from_user_id],
         );
 
-        for (const split of pendingSplits.rows) {
-          if (remainingAmount <= 0.01) break;
+        for (const split of reciprocalSplits.rows) {
+          await client.query(
+            `UPDATE group_expense_splits SET status = 'paid' WHERE id = $1`,
+            [split.id],
+          );
+          availableFunds += Number(split.amount);
+        }
+
+        // 2. Mark direct splits (where sender owes recipient) as paid
+        const directSplits = await client.query(
+          `SELECT ges.id, ges.amount 
+           FROM group_expense_splits ges
+           JOIN group_expenses ge ON ges.expense_id = ge.id
+           WHERE ge.group_id = $1 
+             AND ges.user_id = $2 
+             AND ge.paid_by_user_id = $3 
+             AND ges.status = 'pending'
+           ORDER BY ge.expense_date ASC, ge.created_at ASC`,
+          [settlement.group_id, settlement.from_user_id, settlement.to_user_id],
+        );
+
+        for (const split of directSplits.rows) {
+          if (availableFunds <= 0.01) break;
           const splitAmt = Number(split.amount);
-          
-          if (remainingAmount >= splitAmt - 0.01) {
+
+          if (availableFunds >= splitAmt - 0.01) {
             await client.query(
               `UPDATE group_expense_splits SET status = 'paid' WHERE id = $1`,
               [split.id],
             );
-            remainingAmount -= splitAmt;
+            availableFunds -= splitAmt;
           }
         }
       }
@@ -684,6 +774,22 @@ const getNotificationsController = async (req, res) => {
   }
 };
 
+const markNotificationReadController = async (req, res) => {
+  try {
+    const { notificationId } = req.params;
+    const userId = req.user?.id;
+
+    await pool.query(
+      "UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2",
+      [notificationId, userId],
+    );
+
+    res.status(200).json({ message: "Notification marked as read" });
+  } catch (error) {
+    res.status(500).json({ message: "Error updating notification" });
+  }
+};
+
 const deleteGroupExpenseController = async (req, res) => {
   try {
     const { groupId, expenseId } = req.params;
@@ -692,19 +798,18 @@ const deleteGroupExpenseController = async (req, res) => {
 
     // Only the expense creator or an admin can delete
     const expenseCheck = await pool.query(
-      `SELECT ge.id, ge.paid_by_profile_id FROM group_expenses ge
-       WHERE ge.id = $1 AND ge.group_id = $2`,
+      `SELECT id, paid_by_user_id FROM group_expenses 
+       WHERE id = $1 AND group_id = $2`,
       [expenseId, groupId],
     );
     if (expenseCheck.rows.length === 0) {
       return res.status(404).json({ message: "Expense not found" });
     }
 
-    const isOwner = expenseCheck.rows[0].paid_by_profile_id === profileId;
+    const isOwner = expenseCheck.rows[0].paid_by_user_id === userId;
     const adminCheck = await pool.query(
-      `SELECT gm.id FROM group_members gm
-       JOIN profiles p ON gm.profile_id = p.id
-       WHERE gm.group_id = $1 AND p.user_id = $2 AND gm.role = 'admin'`,
+      `SELECT id FROM group_members 
+       WHERE group_id = $1 AND user_id = $2 AND role = 'admin'`,
       [groupId, userId],
     );
     const isAdmin = adminCheck.rows.length > 0;
@@ -733,16 +838,29 @@ const remindPaymentController = async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    // Resolve the debtor's user ID (from_profile_id might be a profile ID or user ID)
+    let targetDebtorId = from_profile_id;
+    const userCheck = await pool.query("SELECT id FROM users WHERE id = $1", [
+      from_profile_id,
+    ]);
+    if (userCheck.rows.length === 0) {
+      const profileRes = await pool.query(
+        "SELECT user_id FROM profiles WHERE id = $1",
+        [from_profile_id],
+      );
+      if (profileRes.rows.length > 0)
+        targetDebtorId = profileRes.rows[0].user_id;
+    }
+
     // Create notification for the debtor
     await pool.query(
       `INSERT INTO notifications (user_id, group_id, sender_id, type, data)
-       SELECT p.user_id, $1, $2, 'payment_reminder', $3
-       FROM profiles p WHERE p.id = $4`,
+       VALUES ($1, $2, $3, 'payment_reminder', $4)`,
       [
+        targetDebtorId,
         groupId,
         userId,
         JSON.stringify({ amount, message: "Please settle your pending debt" }),
-        from_profile_id,
       ],
     );
 
@@ -768,4 +886,5 @@ export {
   createGroupController,
   getGroupMembersController,
   remindPaymentController,
+  markNotificationReadController,
 };

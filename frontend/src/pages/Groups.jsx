@@ -105,7 +105,7 @@ export default function Groups() {
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1 font-bold text-sm lg:text-base">
             Managing expenses for{" "}
-            <span className="text-blue-500">@{activeProfile?.name}</span>
+            <span className="text-blue-500">You</span>
           </p>
         </div>
         <button

@@ -12,6 +12,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.6.1",
     "npm": "^11.13.0",
+    "papaparse": "^5.5.3",
     "pg": "^8.20.0",
     "react-router-dom": "^7.14.2",
     "recharts": "^3.8.1"

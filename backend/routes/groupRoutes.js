@@ -14,6 +14,7 @@ import {
   remindPaymentController,
   createGroupController,
   getGroupMembersController,
+  markNotificationReadController,
 } from "../controller/groupController.js";
 import authMiddleware from "../middleware/middleware.js";
 
@@ -48,5 +49,10 @@ router.post(
 );
 router.post("/accept-invite", authMiddleware, acceptGroupInviteController);
 router.get("/notifications", authMiddleware, getNotificationsController);
+router.post(
+  "/notifications/:notificationId/read",
+  authMiddleware,
+  markNotificationReadController,
+);
 
 export default router;

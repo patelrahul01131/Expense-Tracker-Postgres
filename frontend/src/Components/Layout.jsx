@@ -131,11 +131,10 @@ export default function Layout({ children }) {
     const token = localStorage.getItem("token");
     try {
       await axios.post(
-        `http://localhost:3000/api/groups/settlements/${n.data.settlement_id}/confirm`,
+        `http://localhost:3000/api/groups/${n.group_id}/settlements/${n.data.settlement_id}/confirm`,
         { status },
         {
           headers: { token },
-          "Cache-Control": "no-cache, no-store, must-revalidate",
         },
       );
       toast.success(`Settlement ${status}`);
@@ -143,6 +142,22 @@ export default function Layout({ children }) {
     } catch (e) {
       toast.error(e.response?.data?.message || "Action failed");
       fetchNotifications(); // Re-fetch to restore state if needed
+    }
+  };
+
+  const handleDismissNotif = async (n) => {
+    // Optimistic UI update
+    setNotifications((prev) => prev.filter((notif) => notif.id !== n.id));
+
+    const token = localStorage.getItem("token");
+    try {
+      await axios.post(
+        `http://localhost:3000/api/groups/notifications/${n.id}/read`,
+        {},
+        { headers: { token } },
+      );
+    } catch (e) {
+      console.log("Error dismissing notification", e);
     }
   };
 
@@ -412,11 +427,7 @@ export default function Layout({ children }) {
                                   </>
                                 ) : (
                                   <button
-                                    onClick={() =>
-                                      setNotifications((prev) =>
-                                        prev.filter((notif) => notif.id !== n.id)
-                                      )
-                                    }
+                                    onClick={() => handleDismissNotif(n)}
                                     className="flex-1 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-black rounded-lg hover:bg-slate-200 transition-colors"
                                   >
                                     Dismiss

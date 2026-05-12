@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Flame,
+  Download,
 } from "lucide-react";
 import { Modal } from "react-responsive-modal";
 import "react-responsive-modal/styles.css";
@@ -269,6 +270,34 @@ function Home() {
   const ITEMS_PER_PAGE = 10;
   const totalPages = Math.ceil(totalExpenses / ITEMS_PER_PAGE);
 
+  const handleExport = async () => {
+    try {
+      const response = await axios.get(
+        "http://localhost:3000/api/expense/export",
+        {
+          headers: getHeaders(),
+        },
+      );
+
+      const blob = new Blob([response.data], {
+        type: "text/csv",
+      });
+
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "expenses.csv";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Expenses exported successfully");
+    } catch (error) {
+      toast.error("Error Exporting Expenses");
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-4 lg:space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20 px-2 lg:px-0 text-slate-900 dark:text-white">
       {/* Header Section */}
@@ -278,17 +307,26 @@ function Home() {
             Dashboard
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1 font-bold text-sm lg:text-base">
-            Financial overview for{" "}
-            <span className="text-blue-600">@{activeProfile?.name}</span>
+            Financial overview for <span className="text-blue-600">You</span>
           </p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 lg:py-3.5 rounded-2xl font-black transition-all shadow-xl shadow-blue-600/30 active:scale-95 text-sm lg:text-base"
-        >
-          <Plus className="w-5 h-5" />
-          Add Entry
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleExport()}
+            className="cursor-pointer flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 lg:py-3.5 rounded-2xl font-black transition-all shadow-xl shadow-blue-600/30 active:scale-95 text-sm lg:text-base"
+          >
+            <Download className="w-5 h-5" />
+            Export To CSV
+          </button>
+
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="cursor-pointer flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 py-4 lg:py-3.5 rounded-2xl font-black transition-all shadow-xl shadow-blue-600/30 active:scale-95 text-sm lg:text-base"
+          >
+            <Plus className="w-5 h-5" />
+            Add Entry
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards Grid */}

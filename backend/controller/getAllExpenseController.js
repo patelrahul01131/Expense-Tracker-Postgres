@@ -1,4 +1,5 @@
 import pool from "../db/db.js";
+import Papa from "papaparse";
 
 const getAllExpenseController = async (req, res) => {
   try {
@@ -123,4 +124,37 @@ SELECT
   }
 };
 
-export { getAllExpenseController, addExpenseController, getStatesController };
+const exportToCSVController = async (req, res) => {
+  try {
+    const profile_id = req.profile.id;
+    const query = `SELECT 
+      e.amount,
+      e.expense_date,
+      e.expense_type,
+      e.notes,
+      c.name AS category,
+      g.name AS group_name
+    FROM expenses e
+    LEFT JOIN categories c ON e.category_id = c.id
+    LEFT JOIN "groups" g ON e.id = g.id
+    WHERE e.profile_id = $1
+ORDER BY e.expense_date DESC`;
+    const result = await pool.query(query, [profile_id]);
+
+    const csv = Papa.unparse(result.rows);
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=expenses.csv");
+    res.status(200).send(csv);
+  } catch (error) {
+    console.log("error", error);
+    res.status(500).json({ message: "Error exporting expenses", error });
+  }
+};
+
+export {
+  getAllExpenseController,
+  addExpenseController,
+  getStatesController,
+  exportToCSVController,
+};

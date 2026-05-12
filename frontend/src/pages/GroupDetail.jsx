@@ -7,11 +7,12 @@ import {
   Loader2,
   Calendar,
   DollarSign,
-  TrendingUp,
+  TrendingUp, 
   TrendingDown,
   Trash2,
   Mail,
   UserPlus,
+  Zap,
   Crown,
   Shield,
   X,
@@ -19,6 +20,7 @@ import {
   Edit3,
   MessageSquare,
   Info,
+  User,
   Tag,
   Check,
   ChevronDown,
@@ -86,6 +88,7 @@ export default function GroupDetail() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
+  const [simplifyDebts, setSimplifyDebts] = useState(false);
   const [addingExpense, setAddingExpense] = useState(false);
   const [recordingSettlement, setRecordingSettlement] = useState(null); // ID of the settlement being recorded
 
@@ -352,43 +355,26 @@ export default function GroupDetail() {
       acc + (exp.expense_type === "income" ? Number(exp.total_amount) : 0),
     0,
   );
-  const memberBalances = useMemo(() => {
-    if (!activeProfile || !members.length) return [];
-    const net = {};
-    members.forEach((m) => {
-      if (m.profile_id !== activeProfile.id) {
-        net[m.profile_id] = { id: m.id, name: m.full_name, balance: 0 };
-      }
-    });
-    balances.debts.forEach((d) => {
-      if (
-        d.owes_profile_id === activeProfile.id &&
-        d.paid_by_profile_id !== activeProfile.id
-      ) {
-        if (net[d.paid_by_profile_id])
-          net[d.paid_by_profile_id].balance -= Number(d.amount);
-      }
-      if (
-        d.paid_by_profile_id === activeProfile.id &&
-        d.owes_profile_id !== activeProfile.id
-      ) {
-        if (net[d.owes_profile_id])
-          net[d.owes_profile_id].balance += Number(d.amount);
-      }
-    });
-    return Object.values(net);
-  }, [balances.debts, activeProfile, members]);
-
   const simplifiedDebts = useMemo(() => {
-    if (!members.length || !balances.debts) return [];
+    if (!members.length || (!balances.debts && !balances.netBalances))
+      return [];
 
-    const netBalances = {};
-    members.forEach((m) => (netBalances[m.profile_id] = 0));
-
-    balances.debts.forEach((d) => {
-      netBalances[d.owes_profile_id] -= Number(d.amount);
-      netBalances[d.paid_by_profile_id] += Number(d.amount);
-    });
+    let netBalances = {};
+    if (balances.netBalances) {
+      // Use pre-calculated net balances from backend (includes all ledger history)
+      Object.keys(balances.netBalances).forEach((pid) => {
+        netBalances[pid.toLowerCase()] = balances.netBalances[pid];
+      });
+    } else {
+      // Fallback: calculate from pending splits only
+      members.forEach((m) => (netBalances[m.user_id.toLowerCase()] = 0));
+      balances.debts.forEach((d) => {
+        const owesId = d.owes_profile_id.toLowerCase();
+        const paidId = d.paid_by_profile_id.toLowerCase();
+        netBalances[owesId] = (netBalances[owesId] || 0) - Number(d.amount);
+        netBalances[paidId] = (netBalances[paidId] || 0) + Number(d.amount);
+      });
+    }
 
     let debtors = [];
     let creditors = [];
@@ -415,10 +401,9 @@ export default function GroupDetail() {
         paid_by_profile_id: creditor.pid,
         amount: settleAmount,
         owes_full_name:
-          members.find((m) => m.profile_id === debtor.pid)?.full_name ||
-          "Someone",
+          members.find((m) => m.user_id === debtor.pid)?.full_name || "Someone",
         paid_by_full_name:
-          members.find((m) => m.profile_id === creditor.pid)?.full_name ||
+          members.find((m) => m.user_id === creditor.pid)?.full_name ||
           "Someone",
       });
 
@@ -429,13 +414,53 @@ export default function GroupDetail() {
       if (creditor.amount < 0.01) j++;
     }
 
-    // Only show debts involving the active user
-    return results.filter(
+    return results;
+  }, [balances.debts, balances.netBalances, members]);
+
+  const memberBalances = useMemo(() => {
+    if (!members.length || !activeProfile) return [];
+    
+    // Use the same source as myDebts (respecting the toggle)
+    const debtsToUse = simplifyDebts ? (simplifiedDebts || []) : (balances.debts || []);
+    const myId = activeProfile.user_id.toLowerCase();
+    
+    const net = {};
+    members.forEach(m => {
+      const uid = m.user_id.toLowerCase();
+      if (uid !== myId) {
+        net[uid] = { 
+          id: m.user_id, 
+          name: m.full_name, 
+          balance: 0 
+        };
+      }
+    });
+    
+    debtsToUse.forEach(d => {
+      const owesId = d.owes_profile_id?.toLowerCase();
+      const paidId = d.paid_by_profile_id?.toLowerCase();
+      
+      if (owesId === myId) {
+        // I owe this person
+        if (net[paidId]) net[paidId].balance -= Number(d.amount);
+      } else if (paidId === myId) {
+        // This person owes me
+        if (net[owesId]) net[owesId].balance += Number(d.amount);
+      }
+    });
+    
+    return Object.values(net).sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
+  }, [simplifyDebts, simplifiedDebts, balances.debts, members, activeProfile]);
+
+  const myDebts = useMemo(() => {
+    const myId = activeProfile?.user_id?.toLowerCase();
+    const debtsToUse = simplifyDebts ? simplifiedDebts : balances.debts;
+    return debtsToUse.filter(
       (d) =>
-        d.owes_profile_id === activeProfile?.id ||
-        d.paid_by_profile_id === activeProfile?.id,
+        d.owes_profile_id?.toLowerCase() === myId ||
+        d.paid_by_profile_id?.toLowerCase() === myId,
     );
-  }, [balances.debts, members, activeProfile]);
+  }, [simplifiedDebts, balances.debts, activeProfile, simplifyDebts]);
 
   const handleDeleteExpense = async (expenseId) => {
     if (!window.confirm("Are you sure you want to delete this expense?"))
@@ -470,7 +495,10 @@ export default function GroupDetail() {
       toast.success("Settlement request recorded!");
       fetchData();
     } catch (err) {
-      console.log("Record Settlement Error: " + err.response?.data?.message || "Failed to record settlement");
+      console.log(
+        "Record Settlement Error: " + err.response?.data?.message ||
+          "Failed to record settlement",
+      );
       toast.error(err.response?.data?.message || "Failed to record settlement");
     } finally {
       setRecordingSettlement(null);
@@ -493,6 +521,20 @@ export default function GroupDetail() {
     }
   };
 
+  const handleDismissNotif = async (notif) => {
+    // Optimistic UI update
+    setNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+    try {
+      await axios.post(
+        `http://localhost:3000/api/groups/notifications/${notif.id}/read`,
+        {},
+        { headers: getHeaders() },
+      );
+    } catch (err) {
+      console.log("Dismiss Notif Error", err);
+    }
+  };
+
   const handleRemind = async (fromId, toId, amount) => {
     try {
       await axios.post(
@@ -505,8 +547,6 @@ export default function GroupDetail() {
       toast.error("Failed to send reminder");
     }
   };
-
-  console.log("Outer Call Balance :" + memberBalances.length);
 
   const categoryData = useMemo(() => {
     const counts = {};
@@ -593,11 +633,7 @@ export default function GroupDetail() {
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 {n.type === "payment_reminder" ? (
                   <button
-                    onClick={() =>
-                      setNotifications((prev) =>
-                        prev.filter((notif) => notif.id !== n.id)
-                      )
-                    }
+                    onClick={() => handleDismissNotif(n)}
                     className="flex-1 sm:flex-none px-6 py-2.5 bg-blue-500 hover:bg-blue-600 text-white text-xs font-black rounded-xl shadow-lg transition-all active:scale-95"
                   >
                     Dismiss
@@ -682,7 +718,7 @@ export default function GroupDetail() {
                     className="flex items-center justify-between gap-3"
                   >
                     <span className="text-xs font-bold text-slate-600 dark:text-slate-300 truncate">
-                      {mb.name}
+                      {mb.id?.toLowerCase() === activeProfile?.user_id?.toLowerCase() ? "You" : mb.name}
                     </span>
                     <span
                       className={`text-sm font-black whitespace-nowrap ${mb.balance > 0 ? "text-emerald-500" : mb.balance < 0 ? "text-rose-500" : "text-slate-400"}`}
@@ -740,9 +776,7 @@ export default function GroupDetail() {
             </div>
           ) : (
             expenses.map((exp) => {
-              const isMe =
-                exp.added_by_name === activeProfile?.name ||
-                exp.added_by_profile === activeProfile?.name;
+              const isMe = exp.paid_by_profile_id === activeProfile?.user_id;
               return (
                 <div
                   key={exp.id}
@@ -765,12 +799,12 @@ export default function GroupDetail() {
                   >
                     <div className="flex items-center gap-2 lg:gap-3 px-2 lg:px-3">
                       <span className="text-[9px] lg:text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                        {exp.added_by_profile_id === activeProfile?.id
+                        {exp.paid_by_profile_id === activeProfile?.user_id
                           ? "You"
                           : exp.added_by_name}
                       </span>
                       <span className="text-[9px] text-slate-300 font-bold">
-                        {new Date(exp.expense_date).toLocaleTimeString([], {
+                        {new Date(exp.created_at).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })}
@@ -805,8 +839,18 @@ export default function GroupDetail() {
                         <div
                           className={`flex items-center gap-1.5 px-2 py-1 lg:px-3 lg:py-1.5 rounded-lg lg:rounded-xl text-[8px] lg:text-[9px] font-black uppercase tracking-widest ${isMe ? "bg-white/20" : "bg-black/5"}`}
                         >
-                          <Users className="w-3 h-3" /> {exp.splits?.length}{" "}
-                          Shared
+                          <div className="flex -space-x-1.5 mr-1">
+                            {(exp.splits || []).slice(0, 3).map((s, i) => (
+                              <div
+                                key={i}
+                                className={`w-4 h-4 rounded-full border border-white dark:border-slate-800 flex items-center justify-center text-[6px] font-black overflow-hidden ${isMe ? "bg-blue-400" : "bg-slate-200"}`}
+                                title={s.full_name}
+                              >
+                                {s.full_name?.charAt(0) || "?"}
+                              </div>
+                            ))}
+                          </div>
+                          {(exp.splits || []).length} Shared
                         </div>
                       </div>
                     </div>
@@ -820,67 +864,69 @@ export default function GroupDetail() {
 
       {/* Debt Tracker */}
       {activeTab === "balances" && (
-        <div className="max-w-4xl mx-auto space-y-4 lg:space-y-8">
-          <div className="space-y-4 lg:space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl lg:text-3xl font-black tracking-tight">
-                Overall Settlements
-              </h2>
-              <div className="px-3 py-1 bg-blue-500/10 text-blue-600 rounded-full text-[10px] font-black uppercase">
-                {simplifiedDebts.length} Pending
-              </div>
-            </div>
+        <div className="max-w-4xl mx-auto space-y-6 lg:space-y-10">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-2">
+            <h3 className="text-xl lg:text-3xl font-black flex items-center gap-2 lg:gap-4 text-blue-500 uppercase tracking-tighter">
+              <Zap className="w-6 h-6 lg:w-9 lg:h-9" /> Group Cashflow
+            </h3>
 
-            {simplifiedDebts.length === 0 ? (
-              <div className="py-20 flex flex-col items-center text-slate-300">
-                <CheckCircle2 className="w-16 h-16 lg:w-20 lg:h-20 mb-6 opacity-20" />
-                <p className="font-black text-sm lg:text-lg uppercase tracking-widest opacity-40">
-                  All settled up!
+            <div className="flex items-center gap-3 bg-white/10 dark:bg-slate-800/40 p-1.5 rounded-2xl border-2 border-black/5">
+              <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-2">
+                Simplify Debts
+              </span>
+              <button
+                onClick={() => setSimplifyDebts(!simplifyDebts)}
+                className={`relative w-12 h-6 rounded-full transition-all duration-300 ${simplifyDebts ? "bg-blue-500" : "bg-slate-300 dark:bg-slate-700"}`}
+              >
+                <div
+                  className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all duration-300 ${simplifyDebts ? "left-7 shadow-lg" : "left-1"}`}
+                />
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 lg:gap-6">
+            {myDebts.length === 0 ? (
+              <div className="p-12 lg:p-24 glass-panel rounded-2xl lg:rounded-[3.5rem] text-center opacity-40">
+                <CheckCircle2 className="w-16 h-16 lg:w-24 lg:h-24 mx-auto mb-6 text-emerald-500" />
+                <p className="text-xl lg:text-2xl font-black uppercase tracking-widest">
+                  Everything is settled!
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
-                {simplifiedDebts.map((debt, idx) => (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-8">
+                {myDebts.map((debt, idx) => (
                   <div
                     key={idx}
-                    className="p-6 lg:p-8 bg-white dark:bg-slate-900 rounded-[2rem] lg:rounded-[2.5rem] border-2 border-slate-50 dark:border-slate-800 shadow-xl shadow-slate-200/50 dark:shadow-none transition-all hover:scale-[1.02] relative overflow-hidden group"
+                    className="glass-panel p-6 lg:p-8 rounded-2xl lg:rounded-[3rem] border-2 border-black/5 flex flex-col justify-between transition-all hover:scale-[1.02] hover:shadow-2xl group relative overflow-hidden"
                   >
-                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                      <ArrowRight className="w-12 h-12 -rotate-45" />
-                    </div>
-
                     <div className="flex items-center justify-between mb-8">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-500 font-black">
-                          {debt.owes_full_name.charAt(0)}
-                        </div>
-                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                            Debtor
-                          </p>
-                          <h4 className="font-black text-slate-900 dark:text-white truncate max-w-[120px]">
-                            {debt.owes_profile_id === activeProfile?.id
-                              ? "You"
-                              : debt.owes_full_name}
-                          </h4>
-                        </div>
-                      </div>
-                      <div className="h-0.5 w-8 bg-slate-100 dark:bg-slate-800" />
-                      <div className="flex items-center gap-4 text-right">
-                        <div>
-                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                            Creditor
-                          </p>
-                          <h4 className="font-black text-slate-900 dark:text-white truncate max-w-[120px]">
-                            {debt.paid_by_profile_id === activeProfile?.id
-                              ? "You"
-                              : debt.paid_by_full_name}
-                          </h4>
-                        </div>
-                        <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center text-emerald-500 font-black">
-                          {debt.paid_by_full_name.charAt(0)}
-                        </div>
-                      </div>
+                      {(() => {
+                        const amDebtor = debt.owes_profile_id?.toLowerCase() === activeProfile?.user_id?.toLowerCase();
+                        const otherName = amDebtor ? debt.paid_by_full_name : debt.owes_full_name;
+                        const otherInitial = otherName.charAt(0);
+                        
+                        return (
+                          <>
+                            <div className="flex items-center gap-4">
+                              <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black ${amDebtor ? 'bg-rose-500/10 text-rose-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                                {otherInitial}
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                  {amDebtor ? "Pay To" : "Collect From"}
+                                </p>
+                                <h4 className="font-black text-slate-900 dark:text-white truncate max-w-[200px]">
+                                  {otherName}
+                                </h4>
+                              </div>
+                            </div>
+                            <div className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest ${amDebtor ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20' : 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'}`}>
+                              {amDebtor ? "Outgoing" : "Incoming"}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
 
                     <div className="flex items-end justify-between">
@@ -893,7 +939,7 @@ export default function GroupDetail() {
                         </p>
                       </div>
 
-                      {debt.owes_profile_id === activeProfile?.id ? (
+                      {debt.owes_profile_id?.toLowerCase() === activeProfile?.user_id?.toLowerCase() ? (
                         <button
                           disabled={
                             recordingSettlement ===
@@ -986,16 +1032,21 @@ export default function GroupDetail() {
                       </p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-[10px] lg:text-xs font-bold text-slate-400">
-                      {s.created_at
-                        ? new Date(s.created_at).toLocaleDateString()
-                        : "N/A"}
-                    </p>
-                    <p className="text-[8px] lg:text-[10px] font-black text-blue-500 mt-1 uppercase">
-                      Ref: {s.id?.slice(0, 8) || "####"}
-                    </p>
-                  </div>
+                    <div className="text-right">
+                      <p className="text-[10px] lg:text-xs font-bold text-slate-400">
+                        {s.from_user_id?.toLowerCase() === activeProfile?.user_id?.toLowerCase() ? "You paid" : s.from_name} 
+                        {" → "}
+                        {s.to_user_id?.toLowerCase() === activeProfile?.user_id?.toLowerCase() ? "You" : s.to_name}
+                      </p>
+                      <p className="text-[10px] font-bold text-slate-400">
+                        {s.created_at
+                          ? new Date(s.created_at).toLocaleDateString()
+                          : "N/A"}
+                      </p>
+                      <p className="text-[8px] lg:text-[10px] font-black text-blue-500 mt-1 uppercase">
+                        Ref: {s.id?.slice(0, 8) || "####"}
+                      </p>
+                    </div>
                 </div>
               ))
             )}
@@ -1105,8 +1156,11 @@ export default function GroupDetail() {
                   key={i}
                   className="flex items-center justify-between gap-3 bg-amber-100/5 dark:bg-slate-900 shadow-lg shadow-amber-500/5 dark:shadow-slate-800/5 rounded-2xl px-4 py-4"
                 >
-                  <span className="text-lg font-bold text-slate-600 dark:text-slate-300 truncate flex items-center gap-2">
-                    {member.full_name}
+                  <span className="text-lg font-bold text-slate-600 dark:text-slate-300 truncate flex items-center gap-2 py-2">
+                    <User name={member.full_name} />
+                    {member.user_id?.toLowerCase() === activeProfile?.user_id?.toLowerCase() 
+                      ? "You (Me)" 
+                      : member.full_name}
                     {member.role === "admin" ? (
                       <span className="text-[10px]  text-white bg-blue-500 rounded-lg px-2 py-1">
                         Admin
@@ -1120,7 +1174,9 @@ export default function GroupDetail() {
 
                   <span>
                     {(() => {
-                      const b = memberBalances.find((b) => b.id === member.id);
+                      const b = memberBalances.find(
+                        (b) => b.id === member.user_id,
+                      );
 
                       if (!b) return null;
 
@@ -1210,12 +1266,12 @@ export default function GroupDetail() {
                           {s.status === "completed" || s.status === "paid" ? (
                             <Check className="w-4 h-4 lg:w-5 lg:h-5" />
                           ) : (
-                            s.full_name.charAt(0)
+                            s.full_name?.charAt(0) || "?"
                           )}
                         </div>
                         <div>
                           <p className="text-xs lg:text-sm font-black text-slate-800 dark:text-slate-200">
-                            {s.full_name}
+                            {s.user_id?.toLowerCase() === activeProfile?.user_id?.toLowerCase() ? "You" : (s.full_name || "Unknown Member")}
                           </p>
                           <p
                             className={`text-[8px] lg:text-[10px] font-black uppercase ${s.status === "completed" || s.status === "paid" ? "text-emerald-500" : "text-slate-400"}`}
@@ -1236,7 +1292,8 @@ export default function GroupDetail() {
 
               <div className="grid grid-cols-2 gap-4 lg:gap-6 mt-6 lg:mt-10">
                 {(group.role === "admin" ||
-                  selectedExpense.paid_by_profile_id === activeProfile?.id) && (
+                  selectedExpense.paid_by_profile_id ===
+                    activeProfile?.user_id) && (
                   <button
                     onClick={() => handleDeleteExpense(selectedExpense.id)}
                     className="col-span-2 py-4 lg:py-6 bg-rose-500 hover:bg-rose-600 text-white font-black rounded-2xl lg:rounded-[2.5rem] shadow-xl shadow-rose-500/20 transition-all hover:-translate-y-1 active:scale-95 flex items-center justify-center gap-3 text-sm lg:text-base"
@@ -1291,7 +1348,7 @@ export default function GroupDetail() {
                     From
                   </p>
                   <p className="font-black text-base lg:text-lg">
-                    {selectedSettlement.from_name}
+                    {selectedSettlement.from_user_id?.toLowerCase() === activeProfile?.user_id?.toLowerCase() ? "You" : selectedSettlement.from_name}
                   </p>
                 </div>
                 <ArrowUpRight className="w-4 h-4 lg:w-5 lg:h-5 text-slate-300" />
@@ -1300,7 +1357,7 @@ export default function GroupDetail() {
                     To
                   </p>
                   <p className="font-black text-base lg:text-lg">
-                    {selectedSettlement.to_name}
+                    {selectedSettlement.to_user_id?.toLowerCase() === activeProfile?.user_id?.toLowerCase() ? "You" : selectedSettlement.to_name}
                   </p>
                 </div>
               </div>
@@ -1638,15 +1695,13 @@ export default function GroupDetail() {
                           ) : (
                             members
                               .find((m) => m.profile_id === s.profile_id)
-                              ?.full_name.charAt(0)
+                              ?.full_name?.charAt(0) || "?"
                           )}
                         </button>
                         <div className="flex-1">
                           <p className="text-xs lg:text-sm font-black text-slate-700 dark:text-slate-300 truncate">
-                            {
-                              members.find((m) => m.profile_id === s.profile_id)
-                                ?.full_name
-                            }
+                            {members.find((m) => m.profile_id === s.profile_id)
+                              ?.full_name || "Unknown Member"}
                           </p>
                           {s.selected && (
                             <p className="text-[9px] font-bold text-slate-400">
