@@ -59,7 +59,7 @@ export default function Groups() {
 
   useEffect(() => {
     fetchGroups();
-  }, [fetchGroups]);
+  }, []);
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -82,6 +82,7 @@ export default function Groups() {
 
   const getInitials = (name = "") =>
     name
+      .trim()
       .split(" ")
       .map((w) => w[0])
       .join("")
@@ -104,8 +105,7 @@ export default function Groups() {
             My Groups
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1 font-bold text-sm lg:text-base">
-            Managing expenses for{" "}
-            <span className="text-blue-500">You</span>
+            Managing expenses for <span className="text-blue-500">You</span>
           </p>
         </div>
         <button
@@ -156,7 +156,7 @@ export default function Groups() {
                     getInitials(group.name)
                   )}
                 </div>
-                <div className="flex flex-col items-end gap-1">
+                <div className="flex flex-col items-end gap-2">
                   <span className="px-3 py-1 bg-white/60 dark:bg-black/20 rounded-full text-[10px] font-black uppercase tracking-widest text-slate-500">
                     {group.member_count} Members
                   </span>
@@ -223,7 +223,6 @@ export default function Groups() {
                   Group Name *
                 </label>
                 <input
-                  required
                   type="text"
                   placeholder="e.g. Dream House"
                   value={formData.name}

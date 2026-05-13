@@ -45,6 +45,7 @@ export default function Profiles() {
 
   const getInitials = (name = "") =>
     name
+      .trim()
       .split(" ")
       .map((w) => w[0])
       .join("")
@@ -111,10 +112,10 @@ export default function Profiles() {
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <button
             onClick={fetchProfiles}
-            className="flex-1 sm:flex-none p-4 lg:p-3.5 rounded-2xl text-slate-500 hover:text-blue-500 bg-white/40 dark:bg-slate-800/40 border border-white/20 transition-all shadow-lg flex items-center justify-center"
+            className="cursor-pointer flex-1 sm:flex-none p-4 lg:p-3.5 rounded-2xl text-slate-500 hover:text-blue-500 bg-white/40 dark:bg-slate-800/40 border border-white/20 transition-all shadow-lg flex items-center justify-center"
             title="Refresh"
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className="w-5 h-5 hover:rotate-180 transition-all duration-300" />
           </button>
           <button
             onClick={() => {
@@ -132,7 +133,7 @@ export default function Profiles() {
       {profiles.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center glass-panel rounded-[2.5rem] bg-white/40 dark:bg-slate-800/40 border border-white/20">
           <UserCircle2 className="w-20 h-20 text-blue-500/10 mb-6" />
-          <h3 className="text-2xl font-black text-slate-900 dark:text-white mb-2">
+          <h3 className="text-2xl font-black text-slate-900 dark:ext-white mb-2">
             No profiles found
           </h3>
           <p className="text-slate-500 font-bold max-w-sm mb-8">
@@ -177,7 +178,7 @@ export default function Profiles() {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      getInitials(profile.name)
+                      getInitials(profile.namte)
                     )}
                   </div>
                   <span className="px-3 py-1 bg-white/60 dark:bg-black/20 rounded-full text-[10px] font-black text-slate-500 uppercase tracking-widest">
@@ -333,7 +334,6 @@ export default function Profiles() {
                     )}
                   </div>
                   <input
-                    required
                     placeholder="e.g. Business Account"
                     value={formData.name}
                     onChange={(e) =>

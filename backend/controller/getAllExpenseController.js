@@ -132,11 +132,9 @@ const exportToCSVController = async (req, res) => {
       e.expense_date,
       e.expense_type,
       e.notes,
-      c.name AS category,
-      g.name AS group_name
+      c.name AS category
     FROM expenses e
     LEFT JOIN categories c ON e.category_id = c.id
-    LEFT JOIN "groups" g ON e.id = g.id
     WHERE e.profile_id = $1
 ORDER BY e.expense_date DESC`;
     const result = await pool.query(query, [profile_id]);

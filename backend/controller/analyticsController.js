@@ -13,20 +13,14 @@ const getAnalyticsController = async (req, res) => {
 
     const cashFlowQuery = `
       SELECT
-        TO_CHAR(month, 'Mon ''YY') AS name,
-        ROUND(income::numeric, 2) AS income,
-        ROUND(expense::numeric, 2) AS expense
-      FROM (
-        SELECT
-          date_trunc('month', expense_date) AS month,
-          SUM(CASE WHEN expense_type = 'income' THEN amount ELSE 0 END) AS income,
-          SUM(CASE WHEN expense_type = 'expense' THEN amount ELSE 0 END) AS expense
-        FROM expenses
-        WHERE profile_id = $1
-          AND expense_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '1 month' * ($2 - 1)
-        GROUP BY 1
-        ORDER BY 1 ASC
-      ) sub
+        TO_CHAR(date_trunc('month', expense_date), 'Mon ''YY') AS name,
+        COALESCE(ROUND(SUM(amount) FILTER (WHERE expense_type = 'income')::numeric, 2), 0) AS income,
+        COALESCE(ROUND(SUM(amount) FILTER (WHERE expense_type = 'expense')::numeric, 2), 0) AS expense
+      FROM expenses
+      WHERE profile_id = $1
+        AND expense_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '1 month' * ($2 - 1)
+      GROUP BY date_trunc('month', expense_date)
+      ORDER BY date_trunc('month', expense_date) ASC
     `;
 
     const categoryQuery = `

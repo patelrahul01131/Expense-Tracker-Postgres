@@ -866,9 +866,7 @@ export default function GroupDetail() {
       {activeTab === "balances" && (
         <div className="max-w-4xl mx-auto space-y-6 lg:space-y-10">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-2">
-            <h3 className="text-xl lg:text-3xl font-black flex items-center gap-2 lg:gap-4 text-blue-500 uppercase tracking-tighter">
-              <Zap className="w-6 h-6 lg:w-9 lg:h-9" /> Group Cashflow
-            </h3>
+           
 
             <div className="flex items-center gap-3 bg-white/10 dark:bg-slate-800/40 p-1.5 rounded-2xl border-2 border-black/5">
               <span className="text-[9px] font-black uppercase tracking-widest text-slate-400 ml-2">

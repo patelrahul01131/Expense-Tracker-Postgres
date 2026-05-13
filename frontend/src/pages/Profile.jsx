@@ -62,19 +62,14 @@ export default function Profile() {
           params: { currentPage: 1 },
         },
       );
-      const stateRes = await axios.get(
-        "http://localhost:3000/api/expense/states",
-        {
-          headers: { token },
-        },
+      const balance = expRes.data.data.map((item) =>
+        item.expense_type === "expense"
+          ? Number(item.amount) * -1
+          : Number(item.amount),
       );
-      const rows = stateRes.data?.[0];
-      const balance = rows
-        ? Number(rows.current_income) - Number(rows.current_expense)
-        : 0;
       setStats({
         total: expRes.data.total || 0,
-        balance,
+        balance: balance.reduce((acc, item) => acc + item, 0),
       });
     } catch (err) {
       if (err?.response?.status === 401) {
@@ -131,6 +126,7 @@ export default function Profile() {
 
   const initials = profile?.name
     ? profile.name
+        .trim()
         .split(" ")
         .map((w) => w[0])
         .join("")
